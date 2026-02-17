@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Department {
+  AUDIO
+  LIGHTING
+  VIDEO
+  POWER
+  RIGGING
+  MISC
+}
+
+enum CaseStatus {
+  IN_SHOP
+  PACKING
+  PACKED
+  STAGED_DOCK
+  LOADED
+  ARRIVED_UNLOADED
+  RETURNING
+  BACK_IN_SHOP
+  ISSUE
+}
+
+model Case {
+  id              String       @id
+  department      Department
+  caseType        String
+  lengthIn        Float?
+  widthIn         Float?
+  heightIn        Float?
+  weightLbs       Float?
+  defaultContents String
+  notes           String?
+  photoUrl        String?
+  currentStatus   CaseStatus   @default(IN_SHOP)
+  currentLocation String       @default("Shop")
+  ownerLabel      String?
+  showOverrides   ShowCase[]
+  statusHistory   StatusEvent[]
+  issueLogs       Issue[]
+}
+
+model Show {
+  id           String     @id @default(cuid())
+  name         String
+  dates        String
+  venue        String
+  notes        String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  showCases    ShowCase[]
+  showTrucks   ShowTruck[]
+  issues       Issue[]
+}
+
+model CrewMember {
+  id          String     @id @default(cuid())
+  name        String
+  assignments ShowCase[] @relation("CaseOwner")
+}
+
+model TruckProfile {
+  id       String      @id @default(cuid())
+  name     String      @unique
+  lengthIn Float?
+  widthIn  Float?
+  heightIn Float?
+  notes    String?
+  showUses ShowTruck[]
+}
+
+model ShowTruck {
+  id       String       @id @default(cuid())
+  showId   String
+  truckId  String
+  loadRank Int          @default(0)
+  show     Show         @relation(fields: [showId], references: [id], onDelete: Cascade)
+  truck    TruckProfile @relation(fields: [truckId], references: [id], onDelete: Restrict)
+
+  @@unique([showId, truckId])
+}
+
+model ShowCase {
+  id            String      @id @default(cuid())
+  showId        String
+  caseId        String
+  ownerId       String?
+  ownerRole     String?
+  truckLabel    String?
+  zoneLabel     String?
+  overrideNotes String?
+  loadOrder     Int         @default(0)
+  show          Show        @relation(fields: [showId], references: [id], onDelete: Cascade)
+  case          Case        @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  owner         CrewMember? @relation("CaseOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@unique([showId, caseId])
+}
+
+model StatusEvent {
+  id         String     @id @default(cuid())
+  caseId      String
+  showId      String?
+  status      CaseStatus
+  location    String?
+  truckLabel  String?
+  zoneLabel   String?
+  note        String?
+  scannedAt   DateTime   @default(now())
+  case        Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  show        Show?      @relation(fields: [showId], references: [id], onDelete: SetNull)
+}
+
+model Issue {
+  id        String   @id @default(cuid())
+  showId    String
+  caseId    String
+  type      String
+  notes     String?
+  photoUrl  String?
+  createdAt DateTime @default(now())
+  show      Show     @relation(fields: [showId], references: [id], onDelete: Cascade)
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+}
