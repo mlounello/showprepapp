@@ -7,30 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Department {
-  AUDIO
-  LIGHTING
-  VIDEO
-  POWER
-  RIGGING
-  MISC
-}
-
-enum CaseStatus {
-  IN_SHOP
-  PACKING
-  PACKED
-  STAGED_DOCK
-  LOADED
-  ARRIVED_UNLOADED
-  RETURNING
-  BACK_IN_SHOP
-  ISSUE
-}
-
 model Case {
   id              String       @id
-  department      Department
+  department      String
   caseType        String
   lengthIn        Float?
   widthIn         Float?
@@ -39,7 +18,7 @@ model Case {
   defaultContents String
   notes           String?
   photoUrl        String?
-  currentStatus   CaseStatus   @default(IN_SHOP)
+  currentStatus   String       @default("IN_SHOP")
   currentLocation String       @default("Shop")
   ownerLabel      String?
   showOverrides   ShowCase[]
@@ -58,6 +37,7 @@ model Show {
   showCases    ShowCase[]
   showTrucks   ShowTruck[]
   issues       Issue[]
+  statusEvents StatusEvent[]
 }
 
 model CrewMember {
@@ -108,7 +88,7 @@ model StatusEvent {
   id         String     @id @default(cuid())
   caseId      String
   showId      String?
-  status      CaseStatus
+  status      String
   location    String?
   truckLabel  String?
   zoneLabel   String?

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { Route } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -8,12 +9,12 @@ export const metadata: Metadata = {
 };
 
 const navItems = [
-  { href: "/", label: "Home" },
-  { href: "/cases", label: "Cases" },
-  { href: "/shows", label: "Shows" },
-  { href: "/crew", label: "Crew" },
-  { href: "/scan", label: "Scan" },
-  { href: "/load-plan", label: "Load Plan" }
+  { href: "/" as Route, label: "Home" },
+  { href: "/cases" as Route, label: "Cases" },
+  { href: "/shows" as Route, label: "Shows" },
+  { href: "/crew" as Route, label: "Crew" },
+  { href: "/scan" as Route, label: "Scan" },
+  { href: "/load-plan" as Route, label: "Load Plan" }
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

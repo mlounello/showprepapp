@@ -2,7 +2,7 @@
 
 Mobile-first show planning for student production crews. The app is case-centric and scan-driven.
 
-## What this initial scaffold includes
+## What this includes now
 
 - Next.js App Router + TypeScript foundation
 - MVP route structure:
@@ -11,8 +11,14 @@ Mobile-first show planning for student production crews. The app is case-centric
   - `/crew` Crew list + owner-based case view
   - `/scan` status update flow (manual scan fallback)
   - `/load-plan` truck + zone ordered load sheet view
-- Domain types for cases, shows, assignments, trucks, statuses, and issues
-- Initial Prisma schema for long-term persistence
+- Prisma + SQLite data layer
+- API routes:
+  - `GET/POST /api/cases`
+  - `PATCH /api/cases/[id]`
+  - `GET/POST /api/shows`
+  - `GET/PATCH /api/shows/[id]`
+  - `POST /api/scan`
+- Seed script for initial local data (`npm run prisma:seed`)
 
 ## Product scope guardrails (v1)
 
@@ -32,11 +38,11 @@ Defer:
 
 ## Next implementation steps
 
-1. Add Prisma client and SQLite seed to replace sample arrays.
-2. Add API routes for case/show CRUD and scan status updates.
-3. Integrate a camera scanner (`BarcodeDetector` + fallback library for iOS gaps).
-4. Implement PDF/export endpoints for pack/load sheets.
-5. Add read-only share token routes for shows.
+1. Integrate camera scanning (`BarcodeDetector` + iOS fallback).
+2. Add case detail page with full status history timeline.
+3. Implement PDF/export endpoints for pack/load sheets.
+4. Add read-only share token routes for shows.
+5. Add assignment editing in show detail (owner/truck/zone drag-reorder).
 
 ## Local setup
 
@@ -56,4 +62,5 @@ Then:
 ```bash
 npx prisma migrate dev -n init
 npx prisma generate
+npm run prisma:seed
 ```

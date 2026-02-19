@@ -1,6 +1,8 @@
-import { caseLibrary, crew } from "@/lib/sample-data";
+import { getCrewAssignments } from "@/lib/data";
 
-export default function CrewPage() {
+export default async function CrewPage() {
+  const crew = await getCrewAssignments();
+
   return (
     <main className="grid" style={{ gap: 16 }}>
       <section className="panel" style={{ padding: 16 }}>
@@ -22,11 +24,11 @@ export default function CrewPage() {
       <section className="panel" style={{ padding: 16 }}>
         <h2 style={{ marginTop: 0 }}>My Cases (by owner)</h2>
         {crew.map((person) => {
-          const mine = caseLibrary.filter((c) => c.owner?.toLowerCase() === person.name.toLowerCase());
+          const assigned = person.assignments.map((row) => row.case.id);
           return (
             <article key={person.id} style={{ marginBottom: 12 }}>
               <strong>{person.name}</strong>
-              <p style={{ marginTop: 4, color: "#5d6d63" }}>{mine.map((c) => c.id).join(", ") || "No assigned cases"}</p>
+              <p style={{ marginTop: 4, color: "#5d6d63" }}>{assigned.join(", ") || "No assigned cases"}</p>
             </article>
           );
         })}

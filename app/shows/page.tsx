@@ -1,22 +1,22 @@
-import Link from "next/link";
-import { shows } from "@/lib/sample-data";
+import { ShowsManager } from "@/components/shows-manager";
+import { getShowsList, getTruckNames } from "@/lib/data";
 
-export default function ShowsPage() {
+export default async function ShowsPage() {
+  const [shows, trucks] = await Promise.all([getShowsList(), getTruckNames()]);
+
   return (
     <main className="grid">
-      <section className="panel" style={{ padding: 16 }}>
-        <h1 style={{ marginTop: 0 }}>Show Builder</h1>
-        <p style={{ color: "#5d6d63" }}>Create shows, assign trucks and owners, then track progress live.</p>
-      </section>
-      {shows.map((show) => (
-        <Link key={show.id} href={`/shows/${show.id}`} className="panel" style={{ padding: 14 }}>
-          <h3 style={{ margin: 0 }}>{show.name}</h3>
-          <p style={{ marginBottom: 6, color: "#5d6d63" }}>{show.dates}</p>
-          <p style={{ margin: 0, color: "#5d6d63" }}>
-            {show.venue} · {show.trucks.join(", ")}
-          </p>
-        </Link>
-      ))}
+      <ShowsManager
+        shows={shows.map((show) => ({
+          id: show.id,
+          name: show.name,
+          dates: show.dates,
+          venue: show.venue,
+          notes: show.notes,
+          trucks: show.showTrucks.map((truck) => truck.truck.name)
+        }))}
+        availableTrucks={trucks}
+      />
     </main>
   );
 }

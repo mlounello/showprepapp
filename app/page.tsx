@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { caseLibrary, issues, shows } from "@/lib/sample-data";
+import { getDashboardCounts } from "@/lib/data";
 
-export default function HomePage() {
-  const inMotion = caseLibrary.filter((c) => c.status !== "In Shop" && c.status !== "Back in Shop").length;
+export default async function HomePage() {
+  const counts = await getDashboardCounts();
 
   return (
     <main className="grid" style={{ gap: 16 }}>
@@ -14,19 +14,19 @@ export default function HomePage() {
         </p>
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
           <div className="panel" style={{ padding: 12 }}>
-            <div style={{ fontSize: 28, fontWeight: 800 }}>{caseLibrary.length}</div>
+            <div style={{ fontSize: 28, fontWeight: 800 }}>{counts.cases}</div>
             <div style={{ color: "#5d6d63" }}>Cases</div>
           </div>
           <div className="panel" style={{ padding: 12 }}>
-            <div style={{ fontSize: 28, fontWeight: 800 }}>{shows.length}</div>
+            <div style={{ fontSize: 28, fontWeight: 800 }}>{counts.shows}</div>
             <div style={{ color: "#5d6d63" }}>Active Shows</div>
           </div>
           <div className="panel" style={{ padding: 12 }}>
-            <div style={{ fontSize: 28, fontWeight: 800 }}>{inMotion}</div>
+            <div style={{ fontSize: 28, fontWeight: 800 }}>{counts.inMotion}</div>
             <div style={{ color: "#5d6d63" }}>In Motion</div>
           </div>
           <div className="panel" style={{ padding: 12 }}>
-            <div style={{ fontSize: 28, fontWeight: 800 }}>{issues.length}</div>
+            <div style={{ fontSize: 28, fontWeight: 800 }}>{counts.issues}</div>
             <div style={{ color: "#5d6d63" }}>Open Issues</div>
           </div>
         </div>

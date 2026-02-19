@@ -1,7 +1,7 @@
-import { caseLibrary } from "@/lib/sample-data";
+import { getLoadSheetRows } from "@/lib/data";
 
-export default function LoadPlanPage() {
-  const sorted = [...caseLibrary].sort((a, b) => (a.truck ?? "").localeCompare(b.truck ?? "") || (a.zone ?? "").localeCompare(b.zone ?? ""));
+export default async function LoadPlanPage() {
+  const rows = await getLoadSheetRows();
 
   return (
     <main className="grid" style={{ gap: 16 }}>
@@ -13,9 +13,9 @@ export default function LoadPlanPage() {
       <section className="panel" style={{ padding: 16 }}>
         <h2 style={{ marginTop: 0 }}>Load Sheet</h2>
         <ol style={{ margin: 0, paddingLeft: 18 }}>
-          {sorted.map((item) => (
-            <li key={item.id} style={{ marginBottom: 8 }}>
-              <strong>{item.id}</strong> · {item.truck ?? "Unassigned Truck"} · {item.zone ?? "No Zone"} · {item.owner ?? "Unassigned"}
+          {rows.map((row) => (
+            <li key={row.id} style={{ marginBottom: 8 }}>
+              <strong>{row.case.id}</strong> · {row.truckLabel ?? "Unassigned Truck"} · {row.zoneLabel ?? "No Zone"} · {row.owner?.name ?? row.ownerRole ?? "Unassigned"}
             </li>
           ))}
         </ol>

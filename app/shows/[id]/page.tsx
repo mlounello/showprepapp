@@ -1,29 +1,16 @@
 import { notFound } from "next/navigation";
+import { ShowEditor } from "@/components/show-editor";
 import { StatusPill } from "@/components/status-pill";
-import { caseLibrary, issues, shows } from "@/lib/sample-data";
+import { getShowDetail } from "@/lib/data";
+import { formatDbStatus } from "@/lib/status";
 
 export default async function ShowDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const show = shows.find((s) => s.id === id);
+  const show = await getShowDetail(id);
 
   if (!show) {
     notFound();
   }
-
-  const rows = show.caseOverrides.map((override) => {
-    const baseCase = caseLibrary.find((c) => c.id === override.caseId);
-    return {
-      id: override.caseId,
-      owner: override.owner,
-      truck: override.truck,
-      zone: override.zone,
-      status: baseCase?.status ?? "In Shop",
-      location: baseCase?.location ?? "Unknown",
-      notes: override.overrideNotes
-    };
-  });
-
-  const showIssues = issues.filter((i) => i.showId === show.id);
 
   return (
     <main className="grid">
@@ -32,8 +19,10 @@ export default async function ShowDetailPage({ params }: { params: Promise<{ id:
         <p style={{ marginBottom: 0, color: "#5d6d63" }}>
           {show.dates} · {show.venue}
         </p>
-        <p style={{ marginBottom: 0, color: "#5d6d63" }}>Trucks: {show.trucks.join(", ")}</p>
+        <p style={{ marginBottom: 0, color: "#5d6d63" }}>Trucks: {show.showTrucks.map((item) => item.truck.name).join(", ")}</p>
       </section>
+
+      <ShowEditor show={{ id: show.id, name: show.name, dates: show.dates, venue: show.venue, notes: show.notes }} />
 
       <section className="panel" style={{ padding: 16 }}>
         <h2 style={{ marginTop: 0 }}>Assigned Cases</h2>
@@ -50,16 +39,16 @@ export default async function ShowDetailPage({ params }: { params: Promise<{ id:
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {show.showCases.map((row) => (
                 <tr key={row.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                  <td style={{ padding: 8 }}>{row.id}</td>
-                  <td style={{ padding: 8 }}>{row.owner ?? "Unassigned"}</td>
-                  <td style={{ padding: 8 }}>{row.truck ?? "-"}</td>
-                  <td style={{ padding: 8 }}>{row.zone ?? "-"}</td>
+                  <td style={{ padding: 8 }}>{row.case.id}</td>
+                  <td style={{ padding: 8 }}>{row.owner?.name ?? row.ownerRole ?? "Unassigned"}</td>
+                  <td style={{ padding: 8 }}>{row.truckLabel ?? "-"}</td>
+                  <td style={{ padding: 8 }}>{row.zoneLabel ?? "-"}</td>
                   <td style={{ padding: 8 }}>
-                    <StatusPill status={row.status} />
+                    <StatusPill status={formatDbStatus(row.case.currentStatus)} />
                   </td>
-                  <td style={{ padding: 8 }}>{row.location}</td>
+                  <td style={{ padding: 8 }}>{row.case.currentLocation}</td>
                 </tr>
               ))}
             </tbody>
@@ -69,8 +58,8 @@ export default async function ShowDetailPage({ params }: { params: Promise<{ id:
 
       <section className="panel" style={{ padding: 16 }}>
         <h2 style={{ marginTop: 0 }}>Issues</h2>
-        {showIssues.length === 0 && <p style={{ color: "#5d6d63" }}>No issues logged.</p>}
-        {showIssues.map((issue) => (
+        {show.issues.length === 0 && <p style={{ color: "#5d6d63" }}>No issues logged.</p>}
+        {show.issues.map((issue) => (
           <article key={issue.id} className="panel" style={{ padding: 12, marginBottom: 10 }}>
             <strong>{issue.type}</strong>
             <p style={{ marginBottom: 0, color: "#5d6d63" }}>
