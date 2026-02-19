@@ -83,6 +83,10 @@ export async function getCrewAssignments() {
   });
 }
 
+export async function getCrewMembers() {
+  return prisma.crewMember.findMany({ orderBy: { name: "asc" } });
+}
+
 export async function getLoadSheetRows() {
   return prisma.showCase.findMany({
     orderBy: [{ truckLabel: "asc" }, { loadOrder: "asc" }],

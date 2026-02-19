@@ -1,14 +1,14 @@
 import { notFound } from "next/navigation";
+import { ShowAssignmentsEditor } from "@/components/show-assignments-editor";
 import { ShowEditor } from "@/components/show-editor";
-import { StatusPill } from "@/components/status-pill";
-import { getShowDetail } from "@/lib/data";
+import { getCrewMembers, getShowDetail } from "@/lib/data";
 import { formatDbStatus } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 
 export default async function ShowDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const show = await getShowDetail(id);
+  const [show, crewMembers] = await Promise.all([getShowDetail(id), getCrewMembers()]);
 
   if (!show) {
     notFound();
@@ -26,37 +26,22 @@ export default async function ShowDetailPage({ params }: { params: Promise<{ id:
 
       <ShowEditor show={{ id: show.id, name: show.name, dates: show.dates, venue: show.venue, notes: show.notes }} />
 
-      <section className="panel" style={{ padding: 16 }}>
-        <h2 style={{ marginTop: 0 }}>Assigned Cases</h2>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb" }}>
-                <th style={{ padding: 8 }}>Case</th>
-                <th style={{ padding: 8 }}>Owner</th>
-                <th style={{ padding: 8 }}>Truck</th>
-                <th style={{ padding: 8 }}>Zone</th>
-                <th style={{ padding: 8 }}>Status</th>
-                <th style={{ padding: 8 }}>Location</th>
-              </tr>
-            </thead>
-            <tbody>
-              {show.showCases.map((row) => (
-                <tr key={row.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                  <td style={{ padding: 8 }}>{row.case.id}</td>
-                  <td style={{ padding: 8 }}>{row.owner?.name ?? row.ownerRole ?? "Unassigned"}</td>
-                  <td style={{ padding: 8 }}>{row.truckLabel ?? "-"}</td>
-                  <td style={{ padding: 8 }}>{row.zoneLabel ?? "-"}</td>
-                  <td style={{ padding: 8 }}>
-                    <StatusPill status={formatDbStatus(row.case.currentStatus)} />
-                  </td>
-                  <td style={{ padding: 8 }}>{row.case.currentLocation}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <ShowAssignmentsEditor
+        showId={show.id}
+        crew={crewMembers.map((member) => ({ id: member.id, name: member.name }))}
+        trucks={show.showTrucks.map((truck) => truck.truck.name)}
+        initialRows={show.showCases.map((row) => ({
+          id: row.id,
+          caseId: row.case.id,
+          ownerId: row.ownerId,
+          ownerRole: row.ownerRole,
+          truckLabel: row.truckLabel,
+          zoneLabel: row.zoneLabel,
+          loadOrder: row.loadOrder,
+          status: formatDbStatus(row.case.currentStatus),
+          location: row.case.currentLocation
+        }))}
+      />
 
       <section className="panel" style={{ padding: 16 }}>
         <h2 style={{ marginTop: 0 }}>Issues</h2>
