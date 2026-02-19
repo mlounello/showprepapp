@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { Route } from "next";
+import { OfflineStatusBadge } from "@/components/offline-status-badge";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12, paddingBottom: 12 }}>
             <div style={{ fontWeight: 800, letterSpacing: 0.4 }}>ShowPrep</div>
             <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "end" }}>
+              <OfflineStatusBadge />
               {navItems.map((item) => (
                 <Link key={item.href} href={item.href} className="badge">
                   {item.label}

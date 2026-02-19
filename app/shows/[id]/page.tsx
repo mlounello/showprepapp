@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { DateRangePill } from "@/components/date-range-pill";
 import { ShowAssignmentsEditor } from "@/components/show-assignments-editor";
 import { ShowOfflineCache } from "@/components/show-offline-cache";
 import { ShowEditor } from "@/components/show-editor";
@@ -20,10 +21,11 @@ export default async function ShowDetailPage({ params }: { params: Promise<{ id:
     <main className="grid">
       <section className="panel" style={{ padding: 16 }}>
         <h1 style={{ marginTop: 0 }}>{show.name}</h1>
-        <p style={{ marginBottom: 0, color: "#5d6d63" }}>
-          {show.dates} · {show.venue}
-        </p>
-        <p style={{ marginBottom: 0, color: "#5d6d63" }}>Trucks: {show.showTrucks.map((item) => item.truck.name).join(", ")}</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <DateRangePill dates={show.dates} />
+          <span className="badge">Venue: {show.venue}</span>
+          <span className="badge">Trucks: {show.showTrucks.map((item) => item.truck.name).join(", ") || "None"}</span>
+        </div>
       </section>
       <ShowOfflineCache
         show={{

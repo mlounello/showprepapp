@@ -1,10 +1,10 @@
 import { ShowsManager } from "@/components/shows-manager";
-import { getShowsList, getTruckNames } from "@/lib/data";
+import { getShowsList, getTruckNames, getTruckProfiles } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function ShowsPage() {
-  const [shows, trucks] = await Promise.all([getShowsList(), getTruckNames()]);
+  const [shows, trucks, truckProfiles] = await Promise.all([getShowsList(), getTruckNames(), getTruckProfiles()]);
 
   return (
     <main className="grid">
@@ -18,6 +18,14 @@ export default async function ShowsPage() {
           trucks: show.showTrucks.map((truck) => truck.truck.name)
         }))}
         availableTrucks={trucks}
+        truckProfiles={truckProfiles.map((truck) => ({
+          id: truck.id,
+          name: truck.name,
+          notes: truck.notes,
+          lengthIn: truck.lengthIn,
+          widthIn: truck.widthIn,
+          heightIn: truck.heightIn
+        }))}
       />
     </main>
   );

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { DateRangePill } from "@/components/date-range-pill";
 import { PrintButton } from "@/components/print-button";
 import { getShowDetail } from "@/lib/data";
 import "@/app/print.css";
@@ -33,9 +34,12 @@ export default async function LoadSheetPage({ params }: { params: Promise<{ id: 
         </div>
 
         <h1 style={{ marginBottom: 8 }}>Load Sheet</h1>
-        <p style={{ marginTop: 0, color: "#5d6d63" }}>
-          {show.name} · {show.dates} · {show.venue}
-        </p>
+        <p style={{ marginTop: 0, marginBottom: 8, color: "#5d6d63" }}>{show.name}</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          <DateRangePill dates={show.dates} />
+          <span className="badge">Venue: {show.venue}</span>
+          <span className="badge">Rows: {rows.length}</span>
+        </div>
 
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>

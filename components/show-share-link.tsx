@@ -73,6 +73,9 @@ export function ShowShareLink({ showId, initialLinks }: { showId: string; initia
           {links.map((link) => (
             <div key={link.token} className="panel" style={{ padding: 10 }}>
               <p style={{ margin: 0, wordBreak: "break-all", color: "#5d6d63" }}>{`${baseUrl}/shared/${link.token}`}</p>
+              <div style={{ marginTop: 8 }}>
+                <span className="badge">Created: {new Date(link.createdAt).toLocaleString()}</span>
+              </div>
               <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
                 <button className="btn" type="button" onClick={() => void copyLink(link.token)}>
                   Copy

@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { formatCaseDimensions } from "@/lib/dimensions";
 import { StatusPill } from "@/components/status-pill";
 import { uiStatuses } from "@/lib/status";
 
@@ -10,6 +11,9 @@ type CaseRow = {
   id: string;
   department: string;
   caseType: string;
+  lengthIn?: number | null;
+  widthIn?: number | null;
+  heightIn?: number | null;
   defaultContents: string;
   status: Parameters<typeof StatusPill>[0]["status"];
   location: string;
@@ -24,6 +28,9 @@ type EditorState = {
   defaultContents: string;
   owner: string;
   location: string;
+  length: string;
+  width: string;
+  height: string;
   status: Parameters<typeof StatusPill>[0]["status"];
   notes: string;
 };
@@ -45,7 +52,10 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
     caseType: "",
     defaultContents: "",
     owner: "",
-    location: "Shop"
+    location: "Shop",
+    length: "",
+    width: "",
+    height: ""
   });
 
   const departments = useMemo(() => ["All", ...new Set(rows.map((item) => item.department))], [rows]);
@@ -69,6 +79,9 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
       defaultContents: item.defaultContents,
       owner: item.owner ?? "",
       location: item.location,
+      length: item.lengthIn?.toString() ?? "",
+      width: item.widthIn?.toString() ?? "",
+      height: item.heightIn?.toString() ?? "",
       status: item.status,
       notes: item.notes ?? ""
     });
@@ -99,7 +112,17 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
       return;
     }
 
-    setNewCase({ id: "", department: "Audio", caseType: "", defaultContents: "", owner: "", location: "Shop" });
+    setNewCase({
+      id: "",
+      department: "Audio",
+      caseType: "",
+      defaultContents: "",
+      owner: "",
+      location: "Shop",
+      length: "",
+      width: "",
+      height: ""
+    });
     setMessage("Case created.");
     setIsSaving(false);
     router.refresh();
@@ -165,12 +188,16 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
             placeholder="Default Contents"
             required
           />
+          <input value={newCase.length} onChange={(e) => setNewCase((prev) => ({ ...prev, length: e.target.value }))} placeholder='Length (24in, 2ft 3in, 610mm)' />
+          <input value={newCase.width} onChange={(e) => setNewCase((prev) => ({ ...prev, width: e.target.value }))} placeholder='Width (24in, 2ft 3in, 610mm)' />
+          <input value={newCase.height} onChange={(e) => setNewCase((prev) => ({ ...prev, height: e.target.value }))} placeholder='Height (24in, 2ft 3in, 610mm)' />
           <input value={newCase.owner} onChange={(e) => setNewCase((prev) => ({ ...prev, owner: e.target.value }))} placeholder="Owner (optional)" />
           <input value={newCase.location} onChange={(e) => setNewCase((prev) => ({ ...prev, location: e.target.value }))} placeholder="Location" />
           <button className="btn" type="submit" disabled={isSaving}>
             {isSaving ? "Saving..." : "Create Case"}
           </button>
         </form>
+        <p style={{ color: "#5d6d63", marginBottom: 0 }}>Dimensions accept inches, feet+inches, or metric (mm/cm/m).</p>
         {message && <p style={{ color: "#5d6d63", marginBottom: 0 }}>{message}</p>}
       </section>
 
@@ -188,6 +215,21 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
               value={editor.defaultContents}
               onChange={(e) => setEditor((prev) => (prev ? { ...prev, defaultContents: e.target.value } : prev))}
               required
+            />
+            <input
+              value={editor.length}
+              onChange={(e) => setEditor((prev) => (prev ? { ...prev, length: e.target.value } : prev))}
+              placeholder='Length (24in, 2ft 3in, 610mm)'
+            />
+            <input
+              value={editor.width}
+              onChange={(e) => setEditor((prev) => (prev ? { ...prev, width: e.target.value } : prev))}
+              placeholder='Width (24in, 2ft 3in, 610mm)'
+            />
+            <input
+              value={editor.height}
+              onChange={(e) => setEditor((prev) => (prev ? { ...prev, height: e.target.value } : prev))}
+              placeholder='Height (24in, 2ft 3in, 610mm)'
             />
             <input value={editor.owner} onChange={(e) => setEditor((prev) => (prev ? { ...prev, owner: e.target.value } : prev))} placeholder="Owner" />
             <input value={editor.location} onChange={(e) => setEditor((prev) => (prev ? { ...prev, location: e.target.value } : prev))} placeholder="Location" />
@@ -221,6 +263,9 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
             </p>
             <p style={{ margin: 0, color: "#5d6d63" }}>Owner: {item.owner ?? "Unassigned"}</p>
             <p style={{ margin: "6px 0 0", color: "#5d6d63" }}>Location: {item.location}</p>
+            <p style={{ margin: "6px 0 0", color: "#5d6d63" }}>
+              Outside: {formatCaseDimensions(item.lengthIn, item.widthIn, item.heightIn)}
+            </p>
             <p style={{ margin: "6px 0 0", color: "#5d6d63" }}>Contents: {item.defaultContents}</p>
             <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
               <Link href={`/cases/${item.id}`} className="btn">

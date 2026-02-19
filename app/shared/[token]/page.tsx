@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { DateRangePill } from "@/components/date-range-pill";
 import { StatusPill } from "@/components/status-pill";
 import { getSharedShowByToken } from "@/lib/data";
 import { formatDbStatus } from "@/lib/status";
@@ -20,9 +21,11 @@ export default async function SharedShowPage({ params }: { params: Promise<{ tok
       <section className="panel" style={{ padding: 16 }}>
         <p style={{ margin: 0, fontSize: 12, color: "#5d6d63" }}>Read-only link</p>
         <h1 style={{ marginTop: 6 }}>{show.name}</h1>
-        <p style={{ marginBottom: 0, color: "#5d6d63" }}>
-          {show.dates} · {show.venue}
-        </p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <DateRangePill dates={show.dates} />
+          <span className="badge">Venue: {show.venue}</span>
+          <span className="badge">Cases: {show.showCases.length}</span>
+        </div>
       </section>
 
       <section className="panel" style={{ padding: 16 }}>

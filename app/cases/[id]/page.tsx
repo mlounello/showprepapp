@@ -1,17 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CaseStatusTimeline } from "@/components/case-status-timeline";
 import { StatusPill } from "@/components/status-pill";
 import { getCaseDetail } from "@/lib/data";
+import { formatCaseDimensions } from "@/lib/dimensions";
 import { formatDbStatus } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
-
-function formatDateTime(value: Date) {
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(value);
-}
 
 export default async function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -37,36 +32,25 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
           <StatusPill status={status} />
           <span className="badge">Location: {item.currentLocation}</span>
           <span className="badge">Owner: {item.ownerLabel ?? "Unassigned"}</span>
+          <span className="badge">Outside: {formatCaseDimensions(item.lengthIn, item.widthIn, item.heightIn)}</span>
         </div>
         <p style={{ marginBottom: 0, color: "#5d6d63" }}>Contents: {item.defaultContents}</p>
         {item.notes && <p style={{ marginBottom: 0, color: "#5d6d63" }}>Notes: {item.notes}</p>}
       </section>
 
-      <section className="panel" style={{ padding: 16 }}>
-        <h2 style={{ marginTop: 0 }}>Status Timeline</h2>
-        {item.statusHistory.length === 0 && <p style={{ color: "#5d6d63" }}>No status events yet.</p>}
-        <div className="grid" style={{ gap: 10 }}>
-          {item.statusHistory.map((event) => {
-            const eventStatus = formatDbStatus(event.status);
-            return (
-              <article key={event.id} className="panel" style={{ padding: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                  <StatusPill status={eventStatus} />
-                  <span className="badge">{formatDateTime(event.scannedAt)}</span>
-                </div>
-                <p style={{ margin: "8px 0 0", color: "#5d6d63" }}>Location: {event.location ?? "Unknown"}</p>
-                {(event.truckLabel || event.zoneLabel) && (
-                  <p style={{ margin: "6px 0 0", color: "#5d6d63" }}>
-                    Load: {event.truckLabel ?? "-"} {event.zoneLabel ? `· ${event.zoneLabel}` : ""}
-                  </p>
-                )}
-                {event.show?.name && <p style={{ margin: "6px 0 0", color: "#5d6d63" }}>Show: {event.show.name}</p>}
-                {event.note && <p style={{ margin: "6px 0 0", color: "#5d6d63" }}>Note: {event.note}</p>}
-              </article>
-            );
-          })}
-        </div>
-      </section>
+      <CaseStatusTimeline
+        events={item.statusHistory.map((event) => ({
+          id: event.id,
+          status: formatDbStatus(event.status),
+          scannedAtIso: event.scannedAt.toISOString(),
+          location: event.location ?? "Unknown",
+          truckLabel: event.truckLabel ?? undefined,
+          zoneLabel: event.zoneLabel ?? undefined,
+          showId: event.show?.id ?? undefined,
+          showName: event.show?.name ?? undefined,
+          note: event.note ?? undefined
+        }))}
+      />
     </main>
   );
 }

@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCases } from "@/lib/data";
 import { parseDimensionInput } from "@/lib/dimensions";
+import { getTruckProfiles } from "@/lib/data";
 import { prisma } from "@/lib/prisma";
-import { uiToDbStatus } from "@/lib/status";
-import { CaseStatus } from "@/lib/types";
 
-interface CreateCasePayload {
-  id?: string;
-  department?: string;
-  caseType?: string;
-  defaultContents?: string;
-  owner?: string;
-  location?: string;
-  status?: CaseStatus;
+interface CreateTruckPayload {
+  name?: string;
   notes?: string;
   length?: string | number | null;
   width?: string | number | null;
@@ -35,36 +27,29 @@ function parseDimensionValue(value: string | number | null | undefined, label: s
 }
 
 export async function GET() {
-  const rows = await getCases();
-  return NextResponse.json(rows);
+  const trucks = await getTruckProfiles();
+  return NextResponse.json(trucks);
 }
 
 export async function POST(req: NextRequest) {
-  const payload = (await req.json()) as CreateCasePayload;
+  const payload = (await req.json()) as CreateTruckPayload;
 
-  if (!payload.id || !payload.department || !payload.caseType || !payload.defaultContents) {
-    return NextResponse.json({ error: "id, department, caseType, and defaultContents are required" }, { status: 400 });
+  if (!payload.name?.trim()) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
   const length = parseDimensionValue(payload.length, "length");
   const width = parseDimensionValue(payload.width, "width");
   const height = parseDimensionValue(payload.height, "height");
-
   const dimensionError = length.error ?? width.error ?? height.error;
   if (dimensionError) {
     return NextResponse.json({ error: dimensionError }, { status: 400 });
   }
 
   try {
-    const created = await prisma.case.create({
+    const created = await prisma.truckProfile.create({
       data: {
-        id: payload.id.trim().toUpperCase(),
-        department: payload.department.trim(),
-        caseType: payload.caseType.trim(),
-        defaultContents: payload.defaultContents.trim(),
-        ownerLabel: payload.owner?.trim() || null,
-        currentLocation: payload.location?.trim() || "Shop",
-        currentStatus: payload.status ? uiToDbStatus[payload.status] : "IN_SHOP",
+        name: payload.name.trim(),
         notes: payload.notes?.trim() || null,
         lengthIn: length.inches ?? null,
         widthIn: width.inches ?? null,
@@ -74,6 +59,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ id: created.id }, { status: 201 });
   } catch {
-    return NextResponse.json({ error: "Unable to create case. Case ID may already exist." }, { status: 409 });
+    return NextResponse.json({ error: "Unable to create truck profile. Name may already exist." }, { status: 409 });
   }
 }

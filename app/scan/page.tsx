@@ -49,6 +49,45 @@ type ScanRequestPayload = {
   issuePhotoDataUrl?: string;
 };
 
+async function compressImageFile(file: File) {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to read image data"));
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
+  });
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode image"));
+    img.src = dataUrl;
+  });
+
+  const maxDim = 1400;
+  const scale = Math.min(1, maxDim / Math.max(image.width, image.height));
+  const targetWidth = Math.max(1, Math.round(image.width * scale));
+  const targetHeight = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return dataUrl;
+  }
+
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+  return canvas.toDataURL("image/jpeg", 0.72);
+}
+
 export default function ScanPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -186,26 +225,25 @@ export default function ScanPage() {
     }
   };
 
-  const onPhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const onPhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) {
       setIssuePhotoDataUrl(undefined);
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      if (result.length > 2_000_000) {
-        setMessage("Photo is large; consider a smaller image.");
+    try {
+      const compressed = await compressImageFile(file);
+      setIssuePhotoDataUrl(compressed || undefined);
+      if (compressed.length > 2_000_000) {
+        setMessage("Photo still large after compression; consider a smaller image.");
+      } else {
+        setMessage("Photo compressed and attached.");
       }
-      setIssuePhotoDataUrl(result || undefined);
-    };
-    reader.onerror = () => {
-      setMessage("Could not read photo file.");
+    } catch {
+      setMessage("Could not process photo file.");
       setIssuePhotoDataUrl(undefined);
-    };
-    reader.readAsDataURL(file);
+    }
   };
 
   const stopCamera = async () => {

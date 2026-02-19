@@ -24,6 +24,9 @@ export async function getCases() {
     id: item.id,
     department: item.department,
     caseType: item.caseType,
+    lengthIn: item.lengthIn,
+    widthIn: item.widthIn,
+    heightIn: item.heightIn,
     defaultContents: item.defaultContents,
     status: formatDbStatus(item.currentStatus),
     location: item.currentLocation,
@@ -66,6 +69,10 @@ export async function getShowsList() {
 export async function getTruckNames() {
   const trucks = await prisma.truckProfile.findMany({ orderBy: { name: "asc" } });
   return trucks.map((item) => item.name);
+}
+
+export async function getTruckProfiles() {
+  return prisma.truckProfile.findMany({ orderBy: { name: "asc" } });
 }
 
 export async function getShowDetail(showId: string) {
