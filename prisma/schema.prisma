@@ -39,6 +39,7 @@ model Show {
   showTrucks   ShowTruck[]
   issues       Issue[]
   statusEvents StatusEvent[]
+  shareLinks   ShowShareLink[]
 }
 
 model CrewMember {
@@ -109,4 +110,13 @@ model Issue {
   createdAt DateTime @default(now())
   show      Show     @relation(fields: [showId], references: [id], onDelete: Cascade)
   case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+}
+
+model ShowShareLink {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  showId    String
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  show      Show     @relation(fields: [showId], references: [id], onDelete: Cascade)
 }

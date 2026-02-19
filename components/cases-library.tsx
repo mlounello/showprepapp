@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusPill } from "@/components/status-pill";
 import { uiStatuses } from "@/lib/status";
@@ -221,9 +222,14 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
             <p style={{ margin: 0, color: "#5d6d63" }}>Owner: {item.owner ?? "Unassigned"}</p>
             <p style={{ margin: "6px 0 0", color: "#5d6d63" }}>Location: {item.location}</p>
             <p style={{ margin: "6px 0 0", color: "#5d6d63" }}>Contents: {item.defaultContents}</p>
-            <button className="btn" type="button" style={{ marginTop: 10 }} onClick={() => startEdit(item)}>
-              Edit
-            </button>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              <Link href={`/cases/${item.id}`} className="btn">
+                View Timeline
+              </Link>
+              <button className="btn" type="button" onClick={() => startEdit(item)}>
+                Edit
+              </button>
+            </div>
           </article>
         ))}
       </section>

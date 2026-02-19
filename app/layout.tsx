@@ -14,7 +14,8 @@ const navItems = [
   { href: "/shows" as Route, label: "Shows" },
   { href: "/crew" as Route, label: "Crew" },
   { href: "/scan" as Route, label: "Scan" },
-  { href: "/load-plan" as Route, label: "Load Plan" }
+  { href: "/load-plan" as Route, label: "Load Plan" },
+  { href: "/admin" as Route, label: "Admin" }
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

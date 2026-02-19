@@ -1,0 +1,27 @@
+@media print {
+  header,
+  .no-print {
+    display: none !important;
+  }
+
+  main {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .print-sheet {
+    box-shadow: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
+  th,
+  td {
+    padding: 6px !important;
+  }
+}

@@ -32,6 +32,25 @@ export async function getCases() {
   }));
 }
 
+export async function getCaseDetail(caseId: string) {
+  return prisma.case.findUnique({
+    where: { id: caseId },
+    include: {
+      statusHistory: {
+        orderBy: { scannedAt: "desc" },
+        include: {
+          show: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
 export async function getShowsList() {
   return prisma.show.findMany({
     orderBy: { createdAt: "desc" },
@@ -69,6 +88,36 @@ export async function getShowDetail(showId: string) {
       }
     }
   });
+}
+
+export async function getShowShareLinks(showId: string) {
+  try {
+    return await prisma.showShareLink.findMany({
+      where: {
+        showId,
+        revokedAt: null
+      },
+      orderBy: { createdAt: "desc" }
+    });
+  } catch {
+    // If schema has not been pushed yet, keep the page usable.
+    return [];
+  }
+}
+
+export async function getSharedShowByToken(token: string) {
+  const link = await prisma.showShareLink.findFirst({
+    where: {
+      token,
+      revokedAt: null
+    }
+  });
+
+  if (!link) {
+    return null;
+  }
+
+  return getShowDetail(link.showId);
 }
 
 export async function getCrewAssignments() {

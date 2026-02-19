@@ -1,11 +1,26 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import {
+  getQueuedScans,
+  OFFLINE_ACTIVE_SHOW_KEY,
+  OFFLINE_CASES_KEY,
+  OFFLINE_SHOWS_KEY,
+  queueScan,
+  readJson,
+  removeQueuedScan,
+  writeJson
+} from "@/lib/offline-lite";
 import { CaseStatus } from "@/lib/types";
 import { uiStatuses } from "@/lib/status";
 
 type CaseRow = {
   id: string;
+};
+
+type ShowRow = {
+  id: string;
+  name: string;
 };
 
 type DetectorLike = {
@@ -23,6 +38,17 @@ type Html5ScannerLike = {
   clear: () => void | Promise<void>;
 };
 
+type ScanRequestPayload = {
+  caseId: string;
+  status: CaseStatus;
+  zone?: string;
+  truck?: string;
+  showId?: string;
+  issueType?: "Missing" | "Damaged" | "Other";
+  issueNotes?: string;
+  issuePhotoDataUrl?: string;
+};
+
 export default function ScanPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -30,30 +56,157 @@ export default function ScanPage() {
   const htmlScannerRef = useRef<Html5ScannerLike | null>(null);
 
   const [cases, setCases] = useState<CaseRow[]>([]);
+  const [shows, setShows] = useState<ShowRow[]>([]);
   const [caseId, setCaseId] = useState("");
   const [status, setStatus] = useState<CaseStatus>("Packed");
   const [zone, setZone] = useState("Nose-Curb");
   const [truck, setTruck] = useState("Truck 1");
+  const [showId, setShowId] = useState("");
+  const [logIssue, setLogIssue] = useState(false);
+  const [issueType, setIssueType] = useState<"Missing" | "Damaged" | "Other">("Missing");
+  const [issueNotes, setIssueNotes] = useState("");
+  const [issuePhotoDataUrl, setIssuePhotoDataUrl] = useState<string | undefined>(undefined);
   const [message, setMessage] = useState("Ready to scan");
   const [cameraState, setCameraState] = useState<"idle" | "active-native" | "active-fallback" | "unsupported">("idle");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
+  const [isSyncingQueue, setIsSyncingQueue] = useState(false);
+
+  const shouldLogIssue = logIssue || status === "Issue";
 
   useEffect(() => {
+    const cachedCases = readJson<CaseRow[]>(OFFLINE_CASES_KEY, []);
+    if (cachedCases.length > 0) {
+      setCases(cachedCases);
+    }
+
+    const cachedShowsMap = readJson<Record<string, { id: string; name: string }>>(OFFLINE_SHOWS_KEY, {});
+    const cachedShows = Object.values(cachedShowsMap).map((entry) => ({ id: entry.id, name: entry.name }));
+    if (cachedShows.length > 0) {
+      setShows(cachedShows);
+    }
+
+    const activeShow = readJson<{ id?: string } | null>(OFFLINE_ACTIVE_SHOW_KEY, null);
+    if (activeShow?.id) {
+      setShowId(activeShow.id);
+    }
+
+    const existingQueue = getQueuedScans();
+    setQueueCount(existingQueue.length);
+
     const load = async () => {
-      const res = await fetch("/api/cases");
-      if (!res.ok) {
-        return;
+      try {
+        const [casesRes, showsRes] = await Promise.all([fetch("/api/cases"), fetch("/api/shows")]);
+
+        if (casesRes.ok) {
+          const caseData = (await casesRes.json()) as CaseRow[];
+          setCases(caseData);
+          writeJson(OFFLINE_CASES_KEY, caseData);
+        }
+
+        if (showsRes.ok) {
+          const showData = (await showsRes.json()) as ShowRow[];
+          setShows(showData);
+          const showMap = showData.reduce<Record<string, ShowRow>>((acc, show) => {
+            acc[show.id] = show;
+            return acc;
+          }, {});
+          writeJson(OFFLINE_SHOWS_KEY, showMap);
+
+          if (showData.length > 0) {
+            setShowId((prev) => prev || showData[0].id);
+          }
+        }
+      } catch {
+        setMessage("Offline mode: using cached shows/cases.");
       }
-      const data = (await res.json()) as CaseRow[];
-      setCases(data);
     };
 
     void load();
 
+    const onOnline = () => {
+      void flushQueuedScans();
+    };
+    window.addEventListener("online", onOnline);
+    void flushQueuedScans();
+
     return () => {
+      window.removeEventListener("online", onOnline);
       void stopCamera();
     };
   }, []);
+
+  useEffect(() => {
+    if (!showId) {
+      return;
+    }
+    writeJson(OFFLINE_ACTIVE_SHOW_KEY, { id: showId, updatedAt: new Date().toISOString() });
+  }, [showId]);
+
+  const sendScanRequest = async (payload: ScanRequestPayload) => {
+    return fetch("/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  };
+
+  const flushQueuedScans = async () => {
+    if (!navigator.onLine) {
+      return;
+    }
+
+    const queue = getQueuedScans();
+    if (queue.length === 0) {
+      setQueueCount(0);
+      return;
+    }
+
+    setIsSyncingQueue(true);
+    let synced = 0;
+
+    for (const item of queue) {
+      try {
+        const res = await sendScanRequest(item.payload as ScanRequestPayload);
+        if (res.ok) {
+          removeQueuedScan(item.id);
+          synced += 1;
+        }
+      } catch {
+        break;
+      }
+    }
+
+    const remaining = getQueuedScans().length;
+    setQueueCount(remaining);
+    setIsSyncingQueue(false);
+
+    if (synced > 0) {
+      setMessage(`Synced ${synced} queued scan${synced > 1 ? "s" : ""}.`);
+    }
+  };
+
+  const onPhotoChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setIssuePhotoDataUrl(undefined);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (result.length > 2_000_000) {
+        setMessage("Photo is large; consider a smaller image.");
+      }
+      setIssuePhotoDataUrl(result || undefined);
+    };
+    reader.onerror = () => {
+      setMessage("Could not read photo file.");
+      setIssuePhotoDataUrl(undefined);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const stopCamera = async () => {
     if (rafRef.current) {
@@ -90,30 +243,63 @@ export default function ScanPage() {
       return;
     }
 
+    if (shouldLogIssue && !showId) {
+      setMessage("Select a show to log an issue.");
+      return;
+    }
+
     setIsSubmitting(true);
 
-    const res = await fetch("/api/scan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        caseId: nextCaseId,
-        status,
-        zone: status === "Loaded" ? zone : undefined,
-        truck: status === "Loaded" ? truck : undefined
-      })
-    });
+    const requestPayload: ScanRequestPayload = {
+      caseId: nextCaseId,
+      status,
+      zone: status === "Loaded" ? zone : undefined,
+      truck: status === "Loaded" ? truck : undefined,
+      showId: showId || undefined,
+      issueType: shouldLogIssue ? issueType : undefined,
+      issueNotes: shouldLogIssue ? issueNotes : undefined,
+      issuePhotoDataUrl: shouldLogIssue ? issuePhotoDataUrl : undefined
+    };
 
-    const payload = (await res.json()) as { error?: string; id?: string; status?: string };
+    let res: Response;
+    try {
+      res = await sendScanRequest(requestPayload);
+    } catch {
+      const queued = queueScan(requestPayload as unknown as Record<string, unknown>);
+      const nextCount = getQueuedScans().length;
+      setQueueCount(nextCount);
+      setMessage(`Offline: queued scan ${queued.id}. Will sync when online.`);
+      setIsSubmitting(false);
+      return;
+    }
+
+    const payload = (await res.json()) as { error?: string; id?: string; status?: string; issueLogged?: boolean };
 
     if (!res.ok) {
+      if (!navigator.onLine) {
+        const queued = queueScan(requestPayload as unknown as Record<string, unknown>);
+        const nextCount = getQueuedScans().length;
+        setQueueCount(nextCount);
+        setMessage(`Offline: queued scan ${queued.id}. Will sync when online.`);
+        setIsSubmitting(false);
+        return;
+      }
       setMessage(payload.error ?? "Update failed.");
       setIsSubmitting(false);
       return;
     }
 
     setCaseId(nextCaseId);
-    setMessage(`Updated ${payload.id} -> ${payload.status}${status === "Loaded" ? ` (${zone})` : ""}`);
+    const issueMessage = payload.issueLogged ? " + issue logged" : "";
+    setMessage(`Updated ${payload.id} -> ${payload.status}${status === "Loaded" ? ` (${zone})` : ""}${issueMessage}`);
     setIsSubmitting(false);
+
+    if (payload.issueLogged) {
+      setLogIssue(false);
+      setIssueType("Missing");
+      setIssueNotes("");
+      setIssuePhotoDataUrl(undefined);
+    }
   };
 
   const runDetectionLoop = (detector: DetectorLike, video: HTMLVideoElement) => {
@@ -252,6 +438,9 @@ export default function ScanPage() {
           <button className="btn" type="button" onClick={() => void stopCamera()} style={{ background: "#64748b" }}>
             Stop Camera
           </button>
+          <button className="btn" type="button" onClick={() => void flushQueuedScans()} disabled={isSyncingQueue || queueCount === 0} style={{ background: "#7c3aed" }}>
+            {isSyncingQueue ? "Syncing..." : `Sync Queue (${queueCount})`}
+          </button>
         </div>
 
         <video
@@ -289,6 +478,18 @@ export default function ScanPage() {
         </datalist>
 
         <div style={{ marginTop: 12 }}>
+          <label>Show Context (optional for status updates)</label>
+          <select value={showId} onChange={(e) => setShowId(e.target.value)}>
+            <option value="">No show selected</option>
+            {shows.map((show) => (
+              <option key={show.id} value={show.id}>
+                {show.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
           <label>New Status</label>
           <select value={status} onChange={(e) => setStatus(e.target.value as CaseStatus)}>
             {uiStatuses.map((entry) => (
@@ -319,6 +520,36 @@ export default function ScanPage() {
             </div>
           </>
         )}
+
+        <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px solid #e5e7eb" }}>
+          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="checkbox" checked={logIssue} onChange={(e) => setLogIssue(e.target.checked)} style={{ width: 18, height: 18 }} />
+            Log Issue (Missing/Damaged/Other)
+          </label>
+
+          {shouldLogIssue && (
+            <div className="grid" style={{ marginTop: 10 }}>
+              <div>
+                <label>Issue Type</label>
+                <select value={issueType} onChange={(e) => setIssueType(e.target.value as "Missing" | "Damaged" | "Other")}>
+                  <option>Missing</option>
+                  <option>Damaged</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div>
+                <label>Issue Notes</label>
+                <textarea value={issueNotes} onChange={(e) => setIssueNotes(e.target.value)} placeholder="What is wrong?" rows={3} />
+              </div>
+              <div>
+                <label>Issue Photo (optional)</label>
+                <input type="file" accept="image/*" capture="environment" onChange={onPhotoChange} />
+                {issuePhotoDataUrl && <p style={{ marginBottom: 0, color: "#5d6d63" }}>Photo attached.</p>}
+              </div>
+              {!showId && <p style={{ margin: 0, color: "#b91c1c" }}>Select a show to submit this issue.</p>}
+            </div>
+          )}
+        </div>
 
         <button className="btn" style={{ marginTop: 12 }} type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Updating..." : "Update Status"}

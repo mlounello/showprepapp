@@ -11,6 +11,9 @@ interface ScanPayload {
   location?: string;
   showId?: string;
   note?: string;
+  issueType?: "Missing" | "Damaged" | "Other";
+  issueNotes?: string;
+  issuePhotoDataUrl?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -48,9 +51,30 @@ export async function POST(req: NextRequest) {
     }
   });
 
+  let issueLogged = false;
+
+  if (payload.issueType) {
+    if (!payload.showId) {
+      return NextResponse.json({ error: "showId is required to log an issue" }, { status: 400 });
+    }
+
+    await prisma.issue.create({
+      data: {
+        showId: payload.showId,
+        caseId: found.id,
+        type: payload.issueType,
+        notes: payload.issueNotes?.trim() || null,
+        photoUrl: payload.issuePhotoDataUrl?.trim() || null
+      }
+    });
+
+    issueLogged = true;
+  }
+
   return NextResponse.json({
     id: updated.id,
     status: dbToUiStatus[updated.currentStatus] ?? "In Shop",
-    location: updated.currentLocation
+    location: updated.currentLocation,
+    issueLogged
   });
 }
