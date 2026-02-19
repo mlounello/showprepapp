@@ -2,11 +2,18 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { Route } from "next";
 import { OfflineStatusBadge } from "@/components/offline-status-badge";
+import { PwaInstall } from "@/components/pwa-install";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ShowPrep",
-  description: "Case-centric show planning for student crews"
+  description: "Case-centric show planning for student crews",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" }, { url: "/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    shortcut: ["/favicon-32x32.png"]
+  }
 };
 
 const navItems = [
@@ -27,6 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12, paddingBottom: 12 }}>
             <div style={{ fontWeight: 800, letterSpacing: 0.4 }}>ShowPrep</div>
             <nav style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "end" }}>
+              <PwaInstall />
               <OfflineStatusBadge />
               {navItems.map((item) => (
                 <Link key={item.href} href={item.href} className="badge">

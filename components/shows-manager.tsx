@@ -4,8 +4,9 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DateRangePill } from "@/components/date-range-pill";
-import { formatCaseDimensions } from "@/lib/dimensions";
+import { formatCaseDimensions, parseDimensionInput } from "@/lib/dimensions";
 import { formatDateRange } from "@/lib/show-dates";
+import { normalizeString, validateOptionalText, validateRequiredText } from "@/lib/validation";
 
 type ShowRow = {
   id: string;
@@ -40,13 +41,15 @@ export function ShowsManager({
   const [savingTruckId, setSavingTruckId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [truckMessage, setTruckMessage] = useState("");
+  const [showErrors, setShowErrors] = useState<Record<string, string>>({});
+  const [newTruckErrors, setNewTruckErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     name: "",
     startDate: "",
     endDate: "",
     venue: "",
     notes: "",
-    trucksText: availableTrucks.join(", ")
+    selectedTrucks: [] as string[]
   });
   const [newTruck, setNewTruck] = useState({
     name: "",
@@ -73,25 +76,42 @@ export function ShowsManager({
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setIsSaving(true);
     setMessage("");
+    setShowErrors({});
 
-    const trucks = form.trucksText
-      .split(",")
-      .map((name) => name.trim())
-      .filter(Boolean);
+    const name = normalizeString(form.name);
+    const venue = normalizeString(form.venue);
+    const notes = normalizeString(form.notes);
+    const dateRange = formatDateRange(form.startDate, form.endDate);
+    const nextErrors: Record<string, string> = {};
+    const nameError = validateRequiredText("Show name", name, 120);
+    if (nameError) nextErrors.name = nameError;
+    if (!form.startDate) nextErrors.startDate = "Start date is required.";
+    if (form.endDate && form.endDate < form.startDate) nextErrors.endDate = "End date cannot be earlier than start date.";
+    const venueError = validateRequiredText("Venue", venue, 120);
+    if (venueError) nextErrors.venue = venueError;
+    const notesError = validateOptionalText("Notes", notes, 500);
+    if (notesError) nextErrors.notes = notesError;
+    if (form.selectedTrucks.length === 0) nextErrors.selectedTrucks = "Select at least one truck profile.";
+    if (Object.keys(nextErrors).length > 0) {
+      setShowErrors(nextErrors);
+      setMessage("Fix highlighted fields.");
+      return;
+    }
 
-    const dates = formatDateRange(form.startDate, form.endDate);
+    setIsSaving(true);
+
+    const dates = dateRange;
 
     const res = await fetch("/api/shows", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: form.name,
+        name,
         dates,
-        venue: form.venue,
-        notes: form.notes,
-        trucks
+        venue,
+        notes,
+        trucks: form.selectedTrucks
       })
     });
 
@@ -103,21 +123,49 @@ export function ShowsManager({
       return;
     }
 
-    setForm({ name: "", startDate: "", endDate: "", venue: "", notes: "", trucksText: availableTrucks.join(", ") });
+    setForm({ name: "", startDate: "", endDate: "", venue: "", notes: "", selectedTrucks: [] });
     setMessage("Show created.");
     setIsSaving(false);
     router.refresh();
   };
 
+  const toggleSelectedTruck = (truckName: string) => {
+    setForm((prev) => {
+      const exists = prev.selectedTrucks.includes(truckName);
+      return {
+        ...prev,
+        selectedTrucks: exists ? prev.selectedTrucks.filter((name) => name !== truckName) : [...prev.selectedTrucks, truckName]
+      };
+    });
+  };
+
   const createTruckProfile = async (e: FormEvent) => {
     e.preventDefault();
-    setIsSavingTruck(true);
     setTruckMessage("");
+    setNewTruckErrors({});
+
+    const name = normalizeString(newTruck.name);
+    const notes = normalizeString(newTruck.notes);
+    const dimensionError =
+      parseDimensionInput(newTruck.length).error ?? parseDimensionInput(newTruck.width).error ?? parseDimensionInput(newTruck.height).error;
+    const nextErrors: Record<string, string> = {};
+    const nameError = validateRequiredText("Truck name", name, 80);
+    if (nameError) nextErrors.name = nameError;
+    const notesError = validateOptionalText("Notes", notes, 300);
+    if (notesError) nextErrors.notes = notesError;
+    if (dimensionError) nextErrors.dimensions = "Invalid dimension format. Use 24, 24in, 2ft 3in, or 610mm.";
+    if (Object.keys(nextErrors).length > 0) {
+      setNewTruckErrors(nextErrors);
+      setTruckMessage("Fix highlighted fields.");
+      return;
+    }
+
+    setIsSavingTruck(true);
 
     const res = await fetch("/api/trucks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newTruck)
+      body: JSON.stringify({ ...newTruck, name, notes })
     });
     const payload = (await res.json()) as { error?: string };
 
@@ -139,12 +187,25 @@ export function ShowsManager({
       return;
     }
 
-    setSavingTruckId(truckId);
     setTruckMessage("");
+    const name = normalizeString(draft.name);
+    const notes = normalizeString(draft.notes);
+    const dimensionError =
+      parseDimensionInput(draft.length).error ?? parseDimensionInput(draft.width).error ?? parseDimensionInput(draft.height).error;
+    const truckError =
+      validateRequiredText("Truck name", name, 80) ??
+      validateOptionalText("Notes", notes, 300) ??
+      (dimensionError ? "Invalid dimension format. Use 24, 24in, 2ft 3in, or 610mm." : null);
+    if (truckError) {
+      setTruckMessage(truckError);
+      return;
+    }
+
+    setSavingTruckId(truckId);
     const res = await fetch(`/api/trucks/${truckId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft)
+      body: JSON.stringify({ ...draft, name, notes })
     });
     const payload = (await res.json()) as { error?: string };
 
@@ -169,16 +230,66 @@ export function ShowsManager({
       <section className="panel" style={{ padding: 16 }}>
         <h2 style={{ marginTop: 0 }}>Create Show</h2>
         <form className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }} onSubmit={onSubmit}>
-          <input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Show Name" required />
-          <input type="date" value={form.startDate} onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))} required />
-          <input type="date" value={form.endDate} onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))} min={form.startDate || undefined} />
-          <input value={form.venue} onChange={(e) => setForm((prev) => ({ ...prev, venue: e.target.value }))} placeholder="Venue" required />
-          <input value={form.trucksText} onChange={(e) => setForm((prev) => ({ ...prev, trucksText: e.target.value }))} placeholder="Trucks (comma-separated)" />
-          <input value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" />
+          <div>
+            <input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Show Name" required maxLength={120} />
+            {showErrors.name && <p className="field-error">{showErrors.name}</p>}
+          </div>
+          <div>
+            <input type="date" value={form.startDate} onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))} required />
+            {showErrors.startDate && <p className="field-error">{showErrors.startDate}</p>}
+          </div>
+          <div>
+            <input type="date" value={form.endDate} onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))} min={form.startDate || undefined} />
+            {showErrors.endDate && <p className="field-error">{showErrors.endDate}</p>}
+          </div>
+          <div>
+            <input value={form.venue} onChange={(e) => setForm((prev) => ({ ...prev, venue: e.target.value }))} placeholder="Venue" required maxLength={120} />
+            {showErrors.venue && <p className="field-error">{showErrors.venue}</p>}
+          </div>
+          <div>
+            <input value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" maxLength={500} />
+            {showErrors.notes && <p className="field-error">{showErrors.notes}</p>}
+          </div>
           <button className="btn" type="submit" disabled={isSaving}>
             {isSaving ? "Saving..." : "Create Show"}
           </button>
         </form>
+        <div className="panel" style={{ padding: 10, marginTop: 10 }}>
+          <p style={{ marginTop: 0, color: "#5d6d63" }}>Trucks (multi-select)</p>
+          {availableTrucks.length === 0 && <p style={{ marginBottom: 0, color: "#5d6d63" }}>No saved truck profiles yet. Add one below first.</p>}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <button className="badge" type="button" onClick={() => setForm((prev) => ({ ...prev, selectedTrucks: [...availableTrucks] }))} style={{ cursor: "pointer" }}>
+              Select All
+            </button>
+            <button className="badge" type="button" onClick={() => setForm((prev) => ({ ...prev, selectedTrucks: [] }))} style={{ cursor: "pointer" }}>
+              Clear All
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {availableTrucks.map((truck) => {
+              const selected = form.selectedTrucks.includes(truck);
+              return (
+                <button
+                  key={truck}
+                  type="button"
+                  className="badge"
+                  onClick={() => toggleSelectedTruck(truck)}
+                  style={{
+                    cursor: "pointer",
+                    borderColor: selected ? "#0f766e" : undefined,
+                    color: selected ? "#0f766e" : undefined,
+                    background: selected ? "#ecfdf5" : undefined
+                  }}
+                >
+                  {selected ? "Selected: " : ""}
+                  {truck}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <p style={{ marginBottom: 0, color: "#5d6d63" }}>Selected: {form.selectedTrucks.join(", ") || "None"}</p>
+        {showErrors.selectedTrucks && <p className="field-error">{showErrors.selectedTrucks}</p>}
         {message && <p style={{ color: "#5d6d63", marginBottom: 0 }}>{message}</p>}
       </section>
 
@@ -186,11 +297,18 @@ export function ShowsManager({
         <h2 style={{ marginTop: 0 }}>Truck Profiles</h2>
         <p style={{ color: "#5d6d63" }}>Save truck dimensions once. Use inches, feet+inches, or metric (mm/cm/m).</p>
         <form className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }} onSubmit={createTruckProfile}>
-          <input value={newTruck.name} onChange={(e) => setNewTruck((prev) => ({ ...prev, name: e.target.value }))} placeholder="Truck Name" required />
+          <div>
+            <input value={newTruck.name} onChange={(e) => setNewTruck((prev) => ({ ...prev, name: e.target.value }))} placeholder="Truck Name" required maxLength={80} />
+            {newTruckErrors.name && <p className="field-error">{newTruckErrors.name}</p>}
+          </div>
           <input value={newTruck.length} onChange={(e) => setNewTruck((prev) => ({ ...prev, length: e.target.value }))} placeholder='Length (24in, 2ft 3in, 610mm)' />
           <input value={newTruck.width} onChange={(e) => setNewTruck((prev) => ({ ...prev, width: e.target.value }))} placeholder='Width (24in, 2ft 3in, 610mm)' />
           <input value={newTruck.height} onChange={(e) => setNewTruck((prev) => ({ ...prev, height: e.target.value }))} placeholder='Height (24in, 2ft 3in, 610mm)' />
-          <input value={newTruck.notes} onChange={(e) => setNewTruck((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes (wheel wells, ramp, etc.)" />
+          <div>
+            <input value={newTruck.notes} onChange={(e) => setNewTruck((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes (wheel wells, ramp, etc.)" maxLength={300} />
+            {newTruckErrors.notes && <p className="field-error">{newTruckErrors.notes}</p>}
+            {newTruckErrors.dimensions && <p className="field-error">{newTruckErrors.dimensions}</p>}
+          </div>
           <button className="btn" type="submit" disabled={isSavingTruck}>
             {isSavingTruck ? "Saving..." : "Add Truck Profile"}
           </button>
@@ -212,7 +330,7 @@ export function ShowsManager({
                   <span className="badge">Outside: {formatCaseDimensions(truck.lengthIn, truck.widthIn, truck.heightIn)}</span>
                 </div>
                 <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-                  <input value={draft.name} onChange={(e) => setTruckDrafts((prev) => ({ ...prev, [truck.id]: { ...draft, name: e.target.value } }))} />
+                  <input value={draft.name} onChange={(e) => setTruckDrafts((prev) => ({ ...prev, [truck.id]: { ...draft, name: e.target.value } }))} maxLength={80} />
                   <input
                     value={draft.length}
                     onChange={(e) => setTruckDrafts((prev) => ({ ...prev, [truck.id]: { ...draft, length: e.target.value } }))}
@@ -228,7 +346,7 @@ export function ShowsManager({
                     onChange={(e) => setTruckDrafts((prev) => ({ ...prev, [truck.id]: { ...draft, height: e.target.value } }))}
                     placeholder='Height (24in, 2ft 3in, 610mm)'
                   />
-                  <input value={draft.notes} onChange={(e) => setTruckDrafts((prev) => ({ ...prev, [truck.id]: { ...draft, notes: e.target.value } }))} placeholder="Notes" />
+                  <input value={draft.notes} onChange={(e) => setTruckDrafts((prev) => ({ ...prev, [truck.id]: { ...draft, notes: e.target.value } }))} placeholder="Notes" maxLength={300} />
                   <button className="btn" type="button" onClick={() => void saveTruckProfile(truck.id)} disabled={savingTruckId === truck.id}>
                     {savingTruckId === truck.id ? "Saving..." : "Save Profile"}
                   </button>

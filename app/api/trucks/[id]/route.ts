@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseDimensionInput } from "@/lib/dimensions";
 import { prisma } from "@/lib/prisma";
+import { normalizeString, validateOptionalText, validateRequiredText } from "@/lib/validation";
 
 interface UpdateTruckPayload {
   name?: string;
@@ -37,6 +38,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const hasLength = Object.prototype.hasOwnProperty.call(payload, "length");
   const hasWidth = Object.prototype.hasOwnProperty.call(payload, "width");
   const hasHeight = Object.prototype.hasOwnProperty.call(payload, "height");
+  const hasName = Object.prototype.hasOwnProperty.call(payload, "name");
+  const hasNotes = Object.prototype.hasOwnProperty.call(payload, "notes");
+
+  const name = hasName ? normalizeString(payload.name) : existing.name;
+  const notes = hasNotes ? normalizeString(payload.notes) : existing.notes ?? "";
+
+  const baseError = validateRequiredText("Truck name", name, 80) ?? validateOptionalText("Notes", notes, 300);
+  if (baseError) {
+    return NextResponse.json({ error: baseError }, { status: 400 });
+  }
 
   const length = hasLength ? parseDimensionValue(payload.length, "length") : { inches: existing.lengthIn };
   const width = hasWidth ? parseDimensionValue(payload.width, "width") : { inches: existing.widthIn };
@@ -50,8 +61,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const updated = await prisma.truckProfile.update({
       where: { id },
       data: {
-        name: payload.name?.trim() || existing.name,
-        notes: payload.notes?.trim() || null,
+        name,
+        notes: notes || null,
         lengthIn: length.inches ?? null,
         widthIn: width.inches ?? null,
         heightIn: height.inches ?? null

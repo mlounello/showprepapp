@@ -3,6 +3,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDateRange, parseDateRange } from "@/lib/show-dates";
+import { normalizeString, validateOptionalText, validateRequiredText } from "@/lib/validation";
 
 export function ShowEditor({
   show
@@ -13,6 +14,7 @@ export function ShowEditor({
   const initialDates = useMemo(() => parseDateRange(show.dates), [show.dates]);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     name: show.name,
     startDate: initialDates.startDate,
@@ -23,17 +25,38 @@ export function ShowEditor({
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setIsSaving(true);
     setMessage("");
+    setFieldErrors({});
+
+    const name = normalizeString(form.name);
+    const venue = normalizeString(form.venue);
+    const notes = normalizeString(form.notes);
+    const dates = formatDateRange(form.startDate, form.endDate, show.dates);
+    const nextErrors: Record<string, string> = {};
+    const nameError = validateRequiredText("Show name", name, 120);
+    if (nameError) nextErrors.name = nameError;
+    if (!form.startDate) nextErrors.startDate = "Start date is required.";
+    if (form.endDate && form.endDate < form.startDate) nextErrors.endDate = "End date cannot be earlier than start date.";
+    const venueError = validateRequiredText("Venue", venue, 120);
+    if (venueError) nextErrors.venue = venueError;
+    const notesError = validateOptionalText("Notes", notes, 500);
+    if (notesError) nextErrors.notes = notesError;
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      setMessage("Fix highlighted fields.");
+      return;
+    }
+
+    setIsSaving(true);
 
     const res = await fetch(`/api/shows/${show.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: form.name,
-        dates: formatDateRange(form.startDate, form.endDate, show.dates),
-        venue: form.venue,
-        notes: form.notes
+        name,
+        dates,
+        venue,
+        notes
       })
     });
 
@@ -54,11 +77,26 @@ export function ShowEditor({
     <section className="panel" style={{ padding: 16 }}>
       <h2 style={{ marginTop: 0 }}>Edit Show</h2>
       <form className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }} onSubmit={onSubmit}>
-        <input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Show Name" required />
-        <input type="date" value={form.startDate} onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))} required />
-        <input type="date" value={form.endDate} onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))} min={form.startDate || undefined} />
-        <input value={form.venue} onChange={(e) => setForm((prev) => ({ ...prev, venue: e.target.value }))} placeholder="Venue" required />
-        <input value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" />
+        <div>
+          <input value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Show Name" required maxLength={120} />
+          {fieldErrors.name && <p className="field-error">{fieldErrors.name}</p>}
+        </div>
+        <div>
+          <input type="date" value={form.startDate} onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))} required />
+          {fieldErrors.startDate && <p className="field-error">{fieldErrors.startDate}</p>}
+        </div>
+        <div>
+          <input type="date" value={form.endDate} onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))} min={form.startDate || undefined} />
+          {fieldErrors.endDate && <p className="field-error">{fieldErrors.endDate}</p>}
+        </div>
+        <div>
+          <input value={form.venue} onChange={(e) => setForm((prev) => ({ ...prev, venue: e.target.value }))} placeholder="Venue" required maxLength={120} />
+          {fieldErrors.venue && <p className="field-error">{fieldErrors.venue}</p>}
+        </div>
+        <div>
+          <input value={form.notes} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Notes" maxLength={500} />
+          {fieldErrors.notes && <p className="field-error">{fieldErrors.notes}</p>}
+        </div>
         <button className="btn" type="submit" disabled={isSaving}>
           {isSaving ? "Saving..." : "Save Show"}
         </button>

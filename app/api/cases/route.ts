@@ -4,6 +4,7 @@ import { parseDimensionInput } from "@/lib/dimensions";
 import { prisma } from "@/lib/prisma";
 import { uiToDbStatus } from "@/lib/status";
 import { CaseStatus } from "@/lib/types";
+import { normalizeString, validateCaseId, validateDepartment, validateOptionalText, validateRequiredText } from "@/lib/validation";
 
 interface CreateCasePayload {
   id?: string;
@@ -46,6 +47,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "id, department, caseType, and defaultContents are required" }, { status: 400 });
   }
 
+  const id = normalizeString(payload.id).toUpperCase();
+  const department = normalizeString(payload.department);
+  const caseType = normalizeString(payload.caseType);
+  const defaultContents = normalizeString(payload.defaultContents);
+  const owner = normalizeString(payload.owner);
+  const location = normalizeString(payload.location);
+  const notes = normalizeString(payload.notes);
+
+  const baseError =
+    validateCaseId(id) ??
+    validateDepartment(department) ??
+    validateRequiredText("Case type", caseType, 80) ??
+    validateRequiredText("Default contents", defaultContents, 500) ??
+    validateOptionalText("Owner", owner, 80) ??
+    validateOptionalText("Location", location, 80) ??
+    validateOptionalText("Notes", notes, 400);
+
+  if (baseError) {
+    return NextResponse.json({ error: baseError }, { status: 400 });
+  }
+
+  if (payload.status && !uiToDbStatus[payload.status]) {
+    return NextResponse.json({ error: "Invalid status." }, { status: 400 });
+  }
+
   const length = parseDimensionValue(payload.length, "length");
   const width = parseDimensionValue(payload.width, "width");
   const height = parseDimensionValue(payload.height, "height");
@@ -58,14 +84,14 @@ export async function POST(req: NextRequest) {
   try {
     const created = await prisma.case.create({
       data: {
-        id: payload.id.trim().toUpperCase(),
-        department: payload.department.trim(),
-        caseType: payload.caseType.trim(),
-        defaultContents: payload.defaultContents.trim(),
-        ownerLabel: payload.owner?.trim() || null,
-        currentLocation: payload.location?.trim() || "Shop",
+        id,
+        department,
+        caseType,
+        defaultContents,
+        ownerLabel: owner || null,
+        currentLocation: location || "Shop",
         currentStatus: payload.status ? uiToDbStatus[payload.status] : "IN_SHOP",
-        notes: payload.notes?.trim() || null,
+        notes: notes || null,
         lengthIn: length.inches ?? null,
         widthIn: width.inches ?? null,
         heightIn: height.inches ?? null

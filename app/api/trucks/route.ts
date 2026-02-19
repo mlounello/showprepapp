@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseDimensionInput } from "@/lib/dimensions";
 import { getTruckProfiles } from "@/lib/data";
 import { prisma } from "@/lib/prisma";
+import { normalizeString, validateOptionalText, validateRequiredText } from "@/lib/validation";
 
 interface CreateTruckPayload {
   name?: string;
@@ -34,7 +35,15 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const payload = (await req.json()) as CreateTruckPayload;
 
-  if (!payload.name?.trim()) {
+  const name = normalizeString(payload.name);
+  const notes = normalizeString(payload.notes);
+
+  const baseError = validateRequiredText("Truck name", name, 80) ?? validateOptionalText("Notes", notes, 300);
+  if (baseError) {
+    return NextResponse.json({ error: baseError }, { status: 400 });
+  }
+
+  if (!name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
@@ -49,8 +58,8 @@ export async function POST(req: NextRequest) {
   try {
     const created = await prisma.truckProfile.create({
       data: {
-        name: payload.name.trim(),
-        notes: payload.notes?.trim() || null,
+        name,
+        notes: notes || null,
         lengthIn: length.inches ?? null,
         widthIn: width.inches ?? null,
         heightIn: height.inches ?? null

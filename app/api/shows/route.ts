@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getShowsList } from "@/lib/data";
 import { prisma } from "@/lib/prisma";
+import { normalizeString, uniqueTrimmed, validateDateRangeString, validateOptionalText, validateRequiredText } from "@/lib/validation";
 
 interface CreateShowPayload {
   name?: string;
@@ -30,32 +31,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "name, dates, and venue are required" }, { status: 400 });
   }
 
-  const trucks = (payload.trucks ?? []).map((name) => name.trim()).filter(Boolean);
+  const name = normalizeString(payload.name);
+  const dates = normalizeString(payload.dates);
+  const venue = normalizeString(payload.venue);
+  const notes = normalizeString(payload.notes);
+  const trucks = uniqueTrimmed(payload.trucks);
+
+  const baseError =
+    validateRequiredText("Show name", name, 120) ??
+    validateDateRangeString(dates) ??
+    validateRequiredText("Venue", venue, 120) ??
+    validateOptionalText("Notes", notes, 500);
+  if (baseError) {
+    return NextResponse.json({ error: baseError }, { status: 400 });
+  }
+  if (trucks.length > 8) {
+    return NextResponse.json({ error: "Select up to 8 trucks." }, { status: 400 });
+  }
+  if (trucks.some((truckName) => truckName.length > 80)) {
+    return NextResponse.json({ error: "Truck names must be 80 characters or fewer." }, { status: 400 });
+  }
+
+  let truckProfileByName = new Map<string, { id: string }>();
+  if (trucks.length > 0) {
+    const truckProfiles = await prisma.truckProfile.findMany({
+      where: { name: { in: trucks } },
+      orderBy: { name: "asc" }
+    });
+    truckProfileByName = new Map(truckProfiles.map((truck) => [truck.name, truck]));
+    const missing = trucks.filter((nameEntry) => !truckProfileByName.has(nameEntry));
+    if (missing.length > 0) {
+      return NextResponse.json({ error: `Unknown truck profile: ${missing.join(", ")}` }, { status: 400 });
+    }
+  }
 
   const show = await prisma.show.create({
     data: {
-      name: payload.name.trim(),
-      dates: payload.dates.trim(),
-      venue: payload.venue.trim(),
-      notes: payload.notes?.trim() || null
+      name,
+      dates,
+      venue,
+      notes: notes || null
     }
   });
 
   if (trucks.length > 0) {
-    const truckProfiles = await Promise.all(
-      trucks.map(async (truckName) => {
-        const existing = await prisma.truckProfile.findUnique({ where: { name: truckName } });
-        if (existing) {
-          return existing;
-        }
-        return prisma.truckProfile.create({ data: { name: truckName } });
-      })
-    );
-
     await prisma.showTruck.createMany({
-      data: truckProfiles.map((truck, index) => ({
+      data: trucks.map((truckName, index) => ({
         showId: show.id,
-        truckId: truck.id,
+        truckId: truckProfileByName.get(truckName)!.id,
         loadRank: index + 1
       }))
     });

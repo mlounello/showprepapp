@@ -78,6 +78,12 @@ textarea {
   background: #fff;
 }
 
+.field-error {
+  margin: 4px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
 @media (min-width: 768px) {
   main {
     padding: 24px;

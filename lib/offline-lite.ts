@@ -2,12 +2,20 @@ export const OFFLINE_SHOWS_KEY = "showprep.offline.shows";
 export const OFFLINE_ACTIVE_SHOW_KEY = "showprep.offline.activeShow";
 export const OFFLINE_CASES_KEY = "showprep.offline.cases";
 export const OFFLINE_SCAN_QUEUE_KEY = "showprep.offline.scanQueue";
+export const OFFLINE_SCAN_SYNC_META_KEY = "showprep.offline.scanSyncMeta";
 export const OFFLINE_EVENT = "showprep-offline-updated";
 
 export type QueuedScan = {
   id: string;
   createdAt: string;
   payload: Record<string, unknown>;
+};
+
+export type ScanSyncMeta = {
+  lastAttemptAt?: string;
+  lastSuccessAt?: string;
+  lastError?: string;
+  nextRetryAt?: string;
 };
 
 function hasWindow() {
@@ -70,4 +78,17 @@ export function removeQueuedScan(id: string) {
     OFFLINE_SCAN_QUEUE_KEY,
     queue.filter((item) => item.id !== id)
   );
+}
+
+export function clearQueuedScans() {
+  writeJson<QueuedScan[]>(OFFLINE_SCAN_QUEUE_KEY, []);
+}
+
+export function getScanSyncMeta() {
+  return readJson<ScanSyncMeta>(OFFLINE_SCAN_SYNC_META_KEY, {});
+}
+
+export function setScanSyncMeta(patch: ScanSyncMeta) {
+  const current = getScanSyncMeta();
+  writeJson(OFFLINE_SCAN_SYNC_META_KEY, { ...current, ...patch });
 }

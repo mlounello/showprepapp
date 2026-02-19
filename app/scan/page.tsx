@@ -3,12 +3,16 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import {
   getQueuedScans,
+  clearQueuedScans,
   OFFLINE_ACTIVE_SHOW_KEY,
   OFFLINE_CASES_KEY,
+  OFFLINE_EVENT,
   OFFLINE_SHOWS_KEY,
   queueScan,
   readJson,
   removeQueuedScan,
+  getScanSyncMeta,
+  setScanSyncMeta,
   writeJson
 } from "@/lib/offline-lite";
 import { CaseStatus } from "@/lib/types";
@@ -44,6 +48,7 @@ type ScanRequestPayload = {
   zone?: string;
   truck?: string;
   showId?: string;
+  operatorLabel?: string;
   issueType?: "Missing" | "Damaged" | "Other";
   issueNotes?: string;
   issuePhotoDataUrl?: string;
@@ -93,6 +98,8 @@ export default function ScanPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const htmlScannerRef = useRef<Html5ScannerLike | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
+  const retryDelayMsRef = useRef(3000);
 
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [shows, setShows] = useState<ShowRow[]>([]);
@@ -101,6 +108,7 @@ export default function ScanPage() {
   const [zone, setZone] = useState("Nose-Curb");
   const [truck, setTruck] = useState("Truck 1");
   const [showId, setShowId] = useState("");
+  const [operatorLabel, setOperatorLabel] = useState("");
   const [logIssue, setLogIssue] = useState(false);
   const [issueType, setIssueType] = useState<"Missing" | "Damaged" | "Other">("Missing");
   const [issueNotes, setIssueNotes] = useState("");
@@ -110,8 +118,38 @@ export default function ScanPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
   const [isSyncingQueue, setIsSyncingQueue] = useState(false);
+  const [oldestQueuedAt, setOldestQueuedAt] = useState<string | null>(null);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [nextRetryAt, setNextRetryAt] = useState<string | null>(null);
+  const [lastSyncError, setLastSyncError] = useState<string | null>(null);
 
   const shouldLogIssue = logIssue || status === "Issue";
+
+  const formatMetaTime = (iso: string | null) => {
+    if (!iso) {
+      return "-";
+    }
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit"
+    }).format(new Date(iso));
+  };
+
+  const clearRetryTimer = () => {
+    if (retryTimerRef.current != null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  };
+
+  const refreshQueueState = () => {
+    const queue = getQueuedScans();
+    setQueueCount(queue.length);
+    setOldestQueuedAt(queue.length > 0 ? queue[0].createdAt : null);
+  };
 
   useEffect(() => {
     const cachedCases = readJson<CaseRow[]>(OFFLINE_CASES_KEY, []);
@@ -130,8 +168,15 @@ export default function ScanPage() {
       setShowId(activeShow.id);
     }
 
-    const existingQueue = getQueuedScans();
-    setQueueCount(existingQueue.length);
+    refreshQueueState();
+    const syncMeta = getScanSyncMeta();
+    setLastSyncAt(syncMeta.lastSuccessAt ?? null);
+    setNextRetryAt(syncMeta.nextRetryAt ?? null);
+    setLastSyncError(syncMeta.lastError ?? null);
+    const cachedOperator = window.localStorage.getItem("scan-operator-label");
+    if (cachedOperator) {
+      setOperatorLabel(cachedOperator);
+    }
 
     const load = async () => {
       try {
@@ -166,11 +211,21 @@ export default function ScanPage() {
     const onOnline = () => {
       void flushQueuedScans();
     };
+    const onOfflineStateChanged = () => {
+      refreshQueueState();
+      const syncMeta = getScanSyncMeta();
+      setLastSyncAt(syncMeta.lastSuccessAt ?? null);
+      setNextRetryAt(syncMeta.nextRetryAt ?? null);
+      setLastSyncError(syncMeta.lastError ?? null);
+    };
     window.addEventListener("online", onOnline);
+    window.addEventListener(OFFLINE_EVENT, onOfflineStateChanged);
     void flushQueuedScans();
 
     return () => {
       window.removeEventListener("online", onOnline);
+      window.removeEventListener(OFFLINE_EVENT, onOfflineStateChanged);
+      clearRetryTimer();
       void stopCamera();
     };
   }, []);
@@ -182,12 +237,35 @@ export default function ScanPage() {
     writeJson(OFFLINE_ACTIVE_SHOW_KEY, { id: showId, updatedAt: new Date().toISOString() });
   }, [showId]);
 
+  useEffect(() => {
+    window.localStorage.setItem("scan-operator-label", operatorLabel);
+  }, [operatorLabel]);
+
   const sendScanRequest = async (payload: ScanRequestPayload) => {
     return fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
+  };
+
+  const scheduleQueueRetry = (reason: string) => {
+    if (!navigator.onLine) {
+      return;
+    }
+    clearRetryTimer();
+    const delayMs = retryDelayMsRef.current;
+    const retryAtIso = new Date(Date.now() + delayMs).toISOString();
+    setNextRetryAt(retryAtIso);
+    setLastSyncError(reason);
+    setScanSyncMeta({
+      lastError: reason,
+      nextRetryAt: retryAtIso
+    });
+    retryTimerRef.current = window.setTimeout(() => {
+      retryDelayMsRef.current = Math.min(retryDelayMsRef.current * 2, 60000);
+      void flushQueuedScans();
+    }, delayMs);
   };
 
   const flushQueuedScans = async () => {
@@ -197,12 +275,19 @@ export default function ScanPage() {
 
     const queue = getQueuedScans();
     if (queue.length === 0) {
-      setQueueCount(0);
+      refreshQueueState();
+      setNextRetryAt(null);
+      setLastSyncError(null);
+      setScanSyncMeta({ nextRetryAt: undefined, lastError: undefined });
+      clearRetryTimer();
       return;
     }
 
     setIsSyncingQueue(true);
+    const attemptedAt = new Date().toISOString();
+    setScanSyncMeta({ lastAttemptAt: attemptedAt });
     let synced = 0;
+    let failed = false;
 
     for (const item of queue) {
       try {
@@ -210,18 +295,37 @@ export default function ScanPage() {
         if (res.ok) {
           removeQueuedScan(item.id);
           synced += 1;
+        } else {
+          failed = true;
+          break;
         }
       } catch {
+        failed = true;
         break;
       }
     }
 
+    refreshQueueState();
     const remaining = getQueuedScans().length;
-    setQueueCount(remaining);
     setIsSyncingQueue(false);
 
     if (synced > 0) {
+      const successAt = new Date().toISOString();
+      setLastSyncAt(successAt);
+      setLastSyncError(null);
+      setNextRetryAt(null);
+      setScanSyncMeta({
+        lastSuccessAt: successAt,
+        lastError: undefined,
+        nextRetryAt: undefined
+      });
+      retryDelayMsRef.current = 3000;
+      clearRetryTimer();
       setMessage(`Synced ${synced} queued scan${synced > 1 ? "s" : ""}.`);
+    }
+
+    if (remaining > 0 && failed) {
+      scheduleQueueRetry("Sync paused: server/network error, retrying automatically.");
     }
   };
 
@@ -294,6 +398,7 @@ export default function ScanPage() {
       zone: status === "Loaded" ? zone : undefined,
       truck: status === "Loaded" ? truck : undefined,
       showId: showId || undefined,
+      operatorLabel: operatorLabel.trim() || undefined,
       issueType: shouldLogIssue ? issueType : undefined,
       issueNotes: shouldLogIssue ? issueNotes : undefined,
       issuePhotoDataUrl: shouldLogIssue ? issuePhotoDataUrl : undefined
@@ -304,20 +409,25 @@ export default function ScanPage() {
       res = await sendScanRequest(requestPayload);
     } catch {
       const queued = queueScan(requestPayload as unknown as Record<string, unknown>);
-      const nextCount = getQueuedScans().length;
-      setQueueCount(nextCount);
+      refreshQueueState();
       setMessage(`Offline: queued scan ${queued.id}. Will sync when online.`);
       setIsSubmitting(false);
       return;
     }
 
-    const payload = (await res.json()) as { error?: string; id?: string; status?: string; issueLogged?: boolean };
+    const payload = (await res.json()) as {
+      error?: string;
+      id?: string;
+      status?: string;
+      issueLogged?: boolean;
+      issuePhotoStored?: boolean;
+      issuePhotoWarning?: string;
+    };
 
     if (!res.ok) {
       if (!navigator.onLine) {
         const queued = queueScan(requestPayload as unknown as Record<string, unknown>);
-        const nextCount = getQueuedScans().length;
-        setQueueCount(nextCount);
+        refreshQueueState();
         setMessage(`Offline: queued scan ${queued.id}. Will sync when online.`);
         setIsSubmitting(false);
         return;
@@ -328,8 +438,9 @@ export default function ScanPage() {
     }
 
     setCaseId(nextCaseId);
-    const issueMessage = payload.issueLogged ? " + issue logged" : "";
-    setMessage(`Updated ${payload.id} -> ${payload.status}${status === "Loaded" ? ` (${zone})` : ""}${issueMessage}`);
+    const issueMessage = payload.issueLogged ? (payload.issuePhotoStored ? " + issue logged (photo saved)" : " + issue logged") : "";
+    const warningMessage = payload.issuePhotoWarning ? ` Warning: ${payload.issuePhotoWarning}` : "";
+    setMessage(`Updated ${payload.id} -> ${payload.status}${status === "Loaded" ? ` (${zone})` : ""}${issueMessage}${warningMessage}`);
     setIsSubmitting(false);
 
     if (payload.issueLogged) {
@@ -461,6 +572,21 @@ export default function ScanPage() {
     await submitScan();
   };
 
+  const clearQueueWithSafeguard = () => {
+    const token = window.prompt("Type CLEAR to remove all queued scans.");
+    if (token !== "CLEAR") {
+      setMessage("Queue clear canceled.");
+      return;
+    }
+    clearQueuedScans();
+    setScanSyncMeta({ lastError: "Queue cleared by admin action.", nextRetryAt: undefined });
+    refreshQueueState();
+    setNextRetryAt(null);
+    setLastSyncError("Queue cleared by admin action.");
+    clearRetryTimer();
+    setMessage("Queued scans cleared.");
+  };
+
   return (
     <main className="grid" style={{ gap: 16 }}>
       <section className="panel" style={{ padding: 16 }}>
@@ -479,6 +605,23 @@ export default function ScanPage() {
           <button className="btn" type="button" onClick={() => void flushQueuedScans()} disabled={isSyncingQueue || queueCount === 0} style={{ background: "#7c3aed" }}>
             {isSyncingQueue ? "Syncing..." : `Sync Queue (${queueCount})`}
           </button>
+        </div>
+        <div className="panel" style={{ padding: 10, marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span className="badge">Queued: {queueCount}</span>
+            <span className="badge">Oldest: {formatMetaTime(oldestQueuedAt)}</span>
+            <span className="badge">Last Sync: {formatMetaTime(lastSyncAt)}</span>
+            <span className="badge">Next Retry: {formatMetaTime(nextRetryAt)}</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            <button className="badge" type="button" onClick={() => void flushQueuedScans()} style={{ cursor: "pointer" }}>
+              Retry Now
+            </button>
+            <button className="badge" type="button" onClick={clearQueueWithSafeguard} style={{ cursor: "pointer", borderColor: "#b91c1c", color: "#b91c1c" }}>
+              Clear Queue (Admin)
+            </button>
+          </div>
+          {lastSyncError && <p style={{ margin: "8px 0 0", color: "#b45309" }}>{lastSyncError}</p>}
         </div>
 
         <video
@@ -525,6 +668,11 @@ export default function ScanPage() {
               </option>
             ))}
           </select>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <label>Operator Label</label>
+          <input value={operatorLabel} onChange={(e) => setOperatorLabel(e.target.value)} placeholder="Dock Captain / Your Name" />
         </div>
 
         <div style={{ marginTop: 12 }}>

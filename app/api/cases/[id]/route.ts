@@ -3,6 +3,7 @@ import { parseDimensionInput } from "@/lib/dimensions";
 import { prisma } from "@/lib/prisma";
 import { uiToDbStatus } from "@/lib/status";
 import { CaseStatus } from "@/lib/types";
+import { normalizeString, validateDepartment, validateOptionalText, validateRequiredText } from "@/lib/validation";
 
 interface UpdateCasePayload {
   department?: string;
@@ -44,6 +45,34 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const hasLength = Object.prototype.hasOwnProperty.call(payload, "length");
   const hasWidth = Object.prototype.hasOwnProperty.call(payload, "width");
   const hasHeight = Object.prototype.hasOwnProperty.call(payload, "height");
+  const hasDepartment = Object.prototype.hasOwnProperty.call(payload, "department");
+  const hasCaseType = Object.prototype.hasOwnProperty.call(payload, "caseType");
+  const hasDefaultContents = Object.prototype.hasOwnProperty.call(payload, "defaultContents");
+  const hasOwner = Object.prototype.hasOwnProperty.call(payload, "owner");
+  const hasLocation = Object.prototype.hasOwnProperty.call(payload, "location");
+  const hasNotes = Object.prototype.hasOwnProperty.call(payload, "notes");
+
+  const department = hasDepartment ? normalizeString(payload.department) : existing.department;
+  const caseType = hasCaseType ? normalizeString(payload.caseType) : existing.caseType;
+  const defaultContents = hasDefaultContents ? normalizeString(payload.defaultContents) : existing.defaultContents;
+  const owner = hasOwner ? normalizeString(payload.owner) : existing.ownerLabel ?? "";
+  const location = hasLocation ? normalizeString(payload.location) : existing.currentLocation;
+  const notes = hasNotes ? normalizeString(payload.notes) : existing.notes ?? "";
+
+  const baseError =
+    validateDepartment(department) ??
+    validateRequiredText("Case type", caseType, 80) ??
+    validateRequiredText("Default contents", defaultContents, 500) ??
+    validateOptionalText("Owner", owner, 80) ??
+    validateRequiredText("Location", location, 80) ??
+    validateOptionalText("Notes", notes, 400);
+  if (baseError) {
+    return NextResponse.json({ error: baseError }, { status: 400 });
+  }
+
+  if (payload.status && !uiToDbStatus[payload.status]) {
+    return NextResponse.json({ error: "Invalid status." }, { status: 400 });
+  }
 
   const parsedLength = hasLength ? parseDimensionValue(payload.length, "length") : { inches: existing.lengthIn };
   const parsedWidth = hasWidth ? parseDimensionValue(payload.width, "width") : { inches: existing.widthIn };
@@ -57,13 +86,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const updated = await prisma.case.update({
     where: { id },
     data: {
-      department: payload.department?.trim() || existing.department,
-      caseType: payload.caseType?.trim() || existing.caseType,
-      defaultContents: payload.defaultContents?.trim() || existing.defaultContents,
-      ownerLabel: payload.owner?.trim() || null,
-      currentLocation: payload.location?.trim() || existing.currentLocation,
+      department,
+      caseType,
+      defaultContents,
+      ownerLabel: owner || null,
+      currentLocation: location,
       currentStatus: payload.status ? uiToDbStatus[payload.status] : existing.currentStatus,
-      notes: payload.notes?.trim() || null,
+      notes: notes || null,
       lengthIn: parsedLength.inches ?? null,
       widthIn: parsedWidth.inches ?? null,
       heightIn: parsedHeight.inches ?? null

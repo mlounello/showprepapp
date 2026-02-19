@@ -92,6 +92,17 @@ export async function getShowDetail(showId: string) {
       },
       issues: {
         orderBy: { createdAt: "desc" }
+      },
+      statusEvents: {
+        orderBy: { scannedAt: "desc" },
+        take: 50,
+        include: {
+          case: {
+            select: {
+              id: true
+            }
+          }
+        }
       }
     }
   });

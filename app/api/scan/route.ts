@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { buildStatusEventNote } from "@/lib/scan-events";
 import { dbToUiStatus, uiToDbStatus } from "@/lib/status";
+import { uploadIssuePhotoToSupabase } from "@/lib/supabase-storage";
 import { CaseStatus } from "@/lib/types";
 
 interface ScanPayload {
@@ -11,6 +13,7 @@ interface ScanPayload {
   location?: string;
   showId?: string;
   note?: string;
+  operatorLabel?: string;
   issueType?: "Missing" | "Damaged" | "Other";
   issueNotes?: string;
   issuePhotoDataUrl?: string;
@@ -47,24 +50,50 @@ export async function POST(req: NextRequest) {
       location: nextLocation,
       truckLabel: payload.truck,
       zoneLabel: payload.zone,
-      note: payload.note
+      note: buildStatusEventNote(payload.note, payload.operatorLabel)
     }
   });
 
   let issueLogged = false;
+  let issuePhotoStored = false;
+  let issuePhotoWarning: string | undefined;
 
   if (payload.issueType) {
     if (!payload.showId) {
       return NextResponse.json({ error: "showId is required to log an issue" }, { status: 400 });
     }
 
+    const issueId = crypto.randomUUID();
+    let photoUrl: string | null = null;
+
+    if (payload.issuePhotoDataUrl?.trim()) {
+      try {
+        const uploaded = await uploadIssuePhotoToSupabase({
+          showId: payload.showId,
+          caseId: found.id,
+          issueId,
+          dataUrl: payload.issuePhotoDataUrl.trim()
+        });
+
+        if (uploaded.publicUrl) {
+          photoUrl = uploaded.publicUrl;
+          issuePhotoStored = true;
+        } else if (uploaded.error) {
+          issuePhotoWarning = uploaded.error;
+        }
+      } catch {
+        issuePhotoWarning = "Issue logged, but photo upload failed.";
+      }
+    }
+
     await prisma.issue.create({
       data: {
+        id: issueId,
         showId: payload.showId,
         caseId: found.id,
         type: payload.issueType,
         notes: payload.issueNotes?.trim() || null,
-        photoUrl: payload.issuePhotoDataUrl?.trim() || null
+        photoUrl
       }
     });
 
@@ -75,6 +104,8 @@ export async function POST(req: NextRequest) {
     id: updated.id,
     status: dbToUiStatus[updated.currentStatus] ?? "In Shop",
     location: updated.currentLocation,
-    issueLogged
+    issueLogged,
+    issuePhotoStored,
+    issuePhotoWarning
   });
 }

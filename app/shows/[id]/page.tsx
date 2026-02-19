@@ -3,6 +3,7 @@ import { DateRangePill } from "@/components/date-range-pill";
 import { ShowAssignmentsEditor } from "@/components/show-assignments-editor";
 import { ShowOfflineCache } from "@/components/show-offline-cache";
 import { ShowEditor } from "@/components/show-editor";
+import { ShowScanFeed } from "@/components/show-scan-feed";
 import { ShowShareLink } from "@/components/show-share-link";
 import { getCrewMembers, getShowDetail, getShowShareLinks } from "@/lib/data";
 import { formatDbStatus } from "@/lib/status";
@@ -75,6 +76,18 @@ export default async function ShowDetailPage({ params }: { params: Promise<{ id:
           loadOrder: row.loadOrder,
           status: formatDbStatus(row.case.currentStatus),
           location: row.case.currentLocation
+        }))}
+      />
+
+      <ShowScanFeed
+        events={show.statusEvents.map((event) => ({
+          id: event.id,
+          scannedAtIso: event.scannedAt.toISOString(),
+          caseId: event.case.id,
+          status: event.status,
+          location: event.location,
+          truckLabel: event.truckLabel,
+          note: event.note
         }))}
       />
 

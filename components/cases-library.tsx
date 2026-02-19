@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatCaseDimensions } from "@/lib/dimensions";
 import { StatusPill } from "@/components/status-pill";
 import { uiStatuses } from "@/lib/status";
+import { normalizeString, validateCaseId, validateDepartment, validateOptionalText, validateRequiredText } from "@/lib/validation";
 
 type CaseRow = {
   id: string;
@@ -43,8 +44,12 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
   const [dept, setDept] = useState("All");
   const [message, setMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [createErrors, setCreateErrors] = useState<Record<string, string>>({});
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 
   const [newCase, setNewCase] = useState({
     id: "",
@@ -85,18 +90,52 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
       status: item.status,
       notes: item.notes ?? ""
     });
+    setEditErrors({});
     setMessage("");
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditor(null);
+    setEditErrors({});
+  };
+
+  const onImportFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    setImportFile(file);
   };
 
   const submitCreate = async (e: FormEvent) => {
     e.preventDefault();
-    setIsSaving(true);
     setMessage("");
+    setCreateErrors({});
+
+    const id = normalizeString(newCase.id).toUpperCase();
+    const department = normalizeString(newCase.department);
+    const caseType = normalizeString(newCase.caseType);
+    const defaultContents = normalizeString(newCase.defaultContents);
+    const owner = normalizeString(newCase.owner);
+    const location = normalizeString(newCase.location);
+    const nextErrors: Record<string, string> = {};
+    const idError = validateCaseId(id);
+    if (idError) nextErrors.id = idError;
+    const deptError = validateDepartment(department);
+    if (deptError) nextErrors.department = deptError;
+    const caseTypeError = validateRequiredText("Case type", caseType, 80);
+    if (caseTypeError) nextErrors.caseType = caseTypeError;
+    const defaultContentsError = validateRequiredText("Default contents", defaultContents, 500);
+    if (defaultContentsError) nextErrors.defaultContents = defaultContentsError;
+    const ownerError = validateOptionalText("Owner", owner, 80);
+    if (ownerError) nextErrors.owner = ownerError;
+    const locationError = validateRequiredText("Location", location, 80);
+    if (locationError) nextErrors.location = locationError;
+    if (Object.keys(nextErrors).length > 0) {
+      setCreateErrors(nextErrors);
+      setMessage("Fix highlighted fields.");
+      return;
+    }
+
+    setIsSaving(true);
 
     const res = await fetch("/api/cases", {
       method: "POST",
@@ -134,8 +173,35 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
       return;
     }
 
-    setIsSaving(true);
     setMessage("");
+    setEditErrors({});
+
+    const department = normalizeString(editor.department);
+    const caseType = normalizeString(editor.caseType);
+    const defaultContents = normalizeString(editor.defaultContents);
+    const owner = normalizeString(editor.owner);
+    const location = normalizeString(editor.location);
+    const notes = normalizeString(editor.notes);
+    const nextErrors: Record<string, string> = {};
+    const deptError = validateDepartment(department);
+    if (deptError) nextErrors.department = deptError;
+    const caseTypeError = validateRequiredText("Case type", caseType, 80);
+    if (caseTypeError) nextErrors.caseType = caseTypeError;
+    const defaultContentsError = validateRequiredText("Default contents", defaultContents, 500);
+    if (defaultContentsError) nextErrors.defaultContents = defaultContentsError;
+    const ownerError = validateOptionalText("Owner", owner, 80);
+    if (ownerError) nextErrors.owner = ownerError;
+    const locationError = validateRequiredText("Location", location, 80);
+    if (locationError) nextErrors.location = locationError;
+    const notesError = validateOptionalText("Notes", notes, 400);
+    if (notesError) nextErrors.notes = notesError;
+    if (Object.keys(nextErrors).length > 0) {
+      setEditErrors(nextErrors);
+      setMessage("Fix highlighted fields.");
+      return;
+    }
+
+    setIsSaving(true);
 
     const res = await fetch(`/api/cases/${editor.id}`, {
       method: "PATCH",
@@ -157,6 +223,56 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
     router.refresh();
   };
 
+  const submitImport = async (e: FormEvent) => {
+    e.preventDefault();
+    setMessage("");
+
+    if (!importFile) {
+      setMessage("Choose a CSV file first.");
+      return;
+    }
+
+    if (!importFile.name.toLowerCase().endsWith(".csv")) {
+      setMessage("Import file must be a .csv.");
+      return;
+    }
+
+    setIsImporting(true);
+
+    const csv = await importFile.text();
+    const res = await fetch("/api/cases/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csv })
+    });
+
+    const payload = (await res.json()) as {
+      error?: string;
+      created?: number;
+      updated?: number;
+      skipped?: number;
+      errors?: Array<{ line: number; id?: string; error: string }>;
+    };
+
+    if (!res.ok) {
+      setMessage(payload.error ?? "Import failed.");
+      setIsImporting(false);
+      return;
+    }
+
+    const firstErrors = (payload.errors ?? [])
+      .slice(0, 3)
+      .map((entry) => `line ${entry.line}${entry.id ? ` (${entry.id})` : ""}: ${entry.error}`)
+      .join(" | ");
+
+    setMessage(
+      `Import complete. Created ${payload.created ?? 0}, updated ${payload.updated ?? 0}, skipped ${payload.skipped ?? 0}.${firstErrors ? ` Errors: ${firstErrors}` : ""}`
+    );
+    setImportFile(null);
+    setIsImporting(false);
+    router.refresh();
+  };
+
   return (
     <>
       <section className="panel" style={{ padding: 16 }}>
@@ -175,24 +291,43 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
       <section className="panel" style={{ padding: 16 }}>
         <h2 style={{ marginTop: 0 }}>Add Case</h2>
         <form className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }} onSubmit={submitCreate}>
-          <input value={newCase.id} onChange={(e) => setNewCase((prev) => ({ ...prev, id: e.target.value }))} placeholder="Case ID (AUD-003)" required />
-          <select value={newCase.department} onChange={(e) => setNewCase((prev) => ({ ...prev, department: e.target.value }))}>
-            {DEPARTMENTS.map((d) => (
-              <option key={d}>{d}</option>
-            ))}
-          </select>
-          <input value={newCase.caseType} onChange={(e) => setNewCase((prev) => ({ ...prev, caseType: e.target.value }))} placeholder="Case Type" required />
-          <input
-            value={newCase.defaultContents}
-            onChange={(e) => setNewCase((prev) => ({ ...prev, defaultContents: e.target.value }))}
-            placeholder="Default Contents"
-            required
-          />
+          <div>
+            <input value={newCase.id} onChange={(e) => setNewCase((prev) => ({ ...prev, id: e.target.value }))} placeholder="Case ID (AUD-003)" required maxLength={32} />
+            {createErrors.id && <p className="field-error">{createErrors.id}</p>}
+          </div>
+          <div>
+            <select value={newCase.department} onChange={(e) => setNewCase((prev) => ({ ...prev, department: e.target.value }))}>
+              {DEPARTMENTS.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+            </select>
+            {createErrors.department && <p className="field-error">{createErrors.department}</p>}
+          </div>
+          <div>
+            <input value={newCase.caseType} onChange={(e) => setNewCase((prev) => ({ ...prev, caseType: e.target.value }))} placeholder="Case Type" required maxLength={80} />
+            {createErrors.caseType && <p className="field-error">{createErrors.caseType}</p>}
+          </div>
+          <div>
+            <input
+              value={newCase.defaultContents}
+              onChange={(e) => setNewCase((prev) => ({ ...prev, defaultContents: e.target.value }))}
+              placeholder="Default Contents"
+              required
+              maxLength={500}
+            />
+            {createErrors.defaultContents && <p className="field-error">{createErrors.defaultContents}</p>}
+          </div>
           <input value={newCase.length} onChange={(e) => setNewCase((prev) => ({ ...prev, length: e.target.value }))} placeholder='Length (24in, 2ft 3in, 610mm)' />
           <input value={newCase.width} onChange={(e) => setNewCase((prev) => ({ ...prev, width: e.target.value }))} placeholder='Width (24in, 2ft 3in, 610mm)' />
           <input value={newCase.height} onChange={(e) => setNewCase((prev) => ({ ...prev, height: e.target.value }))} placeholder='Height (24in, 2ft 3in, 610mm)' />
-          <input value={newCase.owner} onChange={(e) => setNewCase((prev) => ({ ...prev, owner: e.target.value }))} placeholder="Owner (optional)" />
-          <input value={newCase.location} onChange={(e) => setNewCase((prev) => ({ ...prev, location: e.target.value }))} placeholder="Location" />
+          <div>
+            <input value={newCase.owner} onChange={(e) => setNewCase((prev) => ({ ...prev, owner: e.target.value }))} placeholder="Owner (optional)" maxLength={80} />
+            {createErrors.owner && <p className="field-error">{createErrors.owner}</p>}
+          </div>
+          <div>
+            <input value={newCase.location} onChange={(e) => setNewCase((prev) => ({ ...prev, location: e.target.value }))} placeholder="Location" maxLength={80} />
+            {createErrors.location && <p className="field-error">{createErrors.location}</p>}
+          </div>
           <button className="btn" type="submit" disabled={isSaving}>
             {isSaving ? "Saving..." : "Create Case"}
           </button>
@@ -201,21 +336,50 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
         {message && <p style={{ color: "#5d6d63", marginBottom: 0 }}>{message}</p>}
       </section>
 
+      <section className="panel" style={{ padding: 16 }}>
+        <h2 style={{ marginTop: 0 }}>CSV Import / Export</h2>
+        <p style={{ color: "#5d6d63" }}>Bulk create/update cases. Required headers: id, department, caseType, defaultContents.</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <a className="btn" href="/api/cases/export">
+            Export Cases CSV
+          </a>
+          <a className="btn" href="/api/cases/template" style={{ background: "#64748b" }}>
+            Download Template CSV
+          </a>
+        </div>
+        <form className="grid" style={{ gridTemplateColumns: "1fr auto" }} onSubmit={submitImport}>
+          <input type="file" accept=".csv,text/csv" onChange={onImportFileChange} />
+          <button className="btn" type="submit" disabled={isImporting}>
+            {isImporting ? "Importing..." : "Import CSV"}
+          </button>
+        </form>
+      </section>
+
       {editingId && editor && (
         <section className="panel" style={{ padding: 16 }}>
           <h2 style={{ marginTop: 0 }}>Edit Case {editingId}</h2>
           <form className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }} onSubmit={submitEdit}>
-            <select value={editor.department} onChange={(e) => setEditor((prev) => (prev ? { ...prev, department: e.target.value } : prev))}>
-              {DEPARTMENTS.map((d) => (
-                <option key={d}>{d}</option>
-              ))}
-            </select>
-            <input value={editor.caseType} onChange={(e) => setEditor((prev) => (prev ? { ...prev, caseType: e.target.value } : prev))} required />
-            <input
-              value={editor.defaultContents}
-              onChange={(e) => setEditor((prev) => (prev ? { ...prev, defaultContents: e.target.value } : prev))}
-              required
-            />
+            <div>
+              <select value={editor.department} onChange={(e) => setEditor((prev) => (prev ? { ...prev, department: e.target.value } : prev))}>
+                {DEPARTMENTS.map((d) => (
+                  <option key={d}>{d}</option>
+                ))}
+              </select>
+              {editErrors.department && <p className="field-error">{editErrors.department}</p>}
+            </div>
+            <div>
+              <input value={editor.caseType} onChange={(e) => setEditor((prev) => (prev ? { ...prev, caseType: e.target.value } : prev))} required maxLength={80} />
+              {editErrors.caseType && <p className="field-error">{editErrors.caseType}</p>}
+            </div>
+            <div>
+              <input
+                value={editor.defaultContents}
+                onChange={(e) => setEditor((prev) => (prev ? { ...prev, defaultContents: e.target.value } : prev))}
+                required
+                maxLength={500}
+              />
+              {editErrors.defaultContents && <p className="field-error">{editErrors.defaultContents}</p>}
+            </div>
             <input
               value={editor.length}
               onChange={(e) => setEditor((prev) => (prev ? { ...prev, length: e.target.value } : prev))}
@@ -231,14 +395,23 @@ export function CasesLibrary({ rows }: { rows: CaseRow[] }) {
               onChange={(e) => setEditor((prev) => (prev ? { ...prev, height: e.target.value } : prev))}
               placeholder='Height (24in, 2ft 3in, 610mm)'
             />
-            <input value={editor.owner} onChange={(e) => setEditor((prev) => (prev ? { ...prev, owner: e.target.value } : prev))} placeholder="Owner" />
-            <input value={editor.location} onChange={(e) => setEditor((prev) => (prev ? { ...prev, location: e.target.value } : prev))} placeholder="Location" />
+            <div>
+              <input value={editor.owner} onChange={(e) => setEditor((prev) => (prev ? { ...prev, owner: e.target.value } : prev))} placeholder="Owner" maxLength={80} />
+              {editErrors.owner && <p className="field-error">{editErrors.owner}</p>}
+            </div>
+            <div>
+              <input value={editor.location} onChange={(e) => setEditor((prev) => (prev ? { ...prev, location: e.target.value } : prev))} placeholder="Location" maxLength={80} />
+              {editErrors.location && <p className="field-error">{editErrors.location}</p>}
+            </div>
             <select value={editor.status} onChange={(e) => setEditor((prev) => (prev ? { ...prev, status: e.target.value as EditorState["status"] } : prev))}>
               {uiStatuses.map((entry) => (
                 <option key={entry}>{entry}</option>
               ))}
             </select>
-            <input value={editor.notes} onChange={(e) => setEditor((prev) => (prev ? { ...prev, notes: e.target.value } : prev))} placeholder="Notes" />
+            <div>
+              <input value={editor.notes} onChange={(e) => setEditor((prev) => (prev ? { ...prev, notes: e.target.value } : prev))} placeholder="Notes" maxLength={400} />
+              {editErrors.notes && <p className="field-error">{editErrors.notes}</p>}
+            </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn" type="submit" disabled={isSaving}>
                 {isSaving ? "Saving..." : "Save"}
