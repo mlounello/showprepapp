@@ -1,5 +1,7 @@
 import { getLoadSheetRows } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function LoadPlanPage() {
   const rows = await getLoadSheetRows();
 

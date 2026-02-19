@@ -1,6 +1,8 @@
 import { ShowsManager } from "@/components/shows-manager";
 import { getShowsList, getTruckNames } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function ShowsPage() {
   const [shows, trucks] = await Promise.all([getShowsList(), getTruckNames()]);
 

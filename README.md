@@ -11,7 +11,7 @@ Mobile-first show planning for student production crews. The app is case-centric
   - `/crew` Crew list + owner-based case view
   - `/scan` status update flow (manual scan fallback)
   - `/load-plan` truck + zone ordered load sheet view
-- Prisma + SQLite data layer
+- Prisma + Postgres (Supabase-ready) data layer
 - API routes:
   - `GET/POST /api/cases`
   - `PATCH /api/cases/[id]`
@@ -54,13 +54,26 @@ npm run dev
 Set `.env`:
 
 ```bash
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="postgresql://postgres:<PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres"
 ```
 
 Then:
 
 ```bash
-npx prisma migrate dev -n init
 npx prisma generate
+npx prisma db push
 npm run prisma:seed
+```
+
+## Vercel + Supabase env
+
+Set `DATABASE_URL` in Vercel Project Settings -> Environment Variables.
+
+- Value: your Supabase Postgres connection string.
+- Apply to: `Production`, `Preview`, and `Development`.
+
+After setting the variable:
+
+```bash
+npx vercel --prod
 ```

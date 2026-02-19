@@ -1,5 +1,7 @@
 import { getCrewAssignments } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default async function CrewPage() {
   const crew = await getCrewAssignments();
 
