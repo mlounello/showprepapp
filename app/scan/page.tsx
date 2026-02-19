@@ -12,10 +12,22 @@ type DetectorLike = {
   detect: (source: CanvasImageSource) => Promise<Array<{ rawValue?: string }>>;
 };
 
+type Html5ScannerLike = {
+  start: (
+    cameraConfig: string | MediaTrackConstraints,
+    config: { fps?: number; qrbox?: { width: number; height: number } },
+    qrCodeSuccessCallback: (decodedText: string) => void,
+    qrCodeErrorCallback?: (errorMessage: string) => void
+  ) => Promise<unknown>;
+  stop: () => Promise<void>;
+  clear: () => void | Promise<void>;
+};
+
 export default function ScanPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
+  const htmlScannerRef = useRef<Html5ScannerLike | null>(null);
 
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [caseId, setCaseId] = useState("");
@@ -23,7 +35,7 @@ export default function ScanPage() {
   const [zone, setZone] = useState("Nose-Curb");
   const [truck, setTruck] = useState("Truck 1");
   const [message, setMessage] = useState("Ready to scan");
-  const [cameraState, setCameraState] = useState<"idle" | "active" | "unsupported">("idle");
+  const [cameraState, setCameraState] = useState<"idle" | "active-native" | "active-fallback" | "unsupported">("idle");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -39,11 +51,11 @@ export default function ScanPage() {
     void load();
 
     return () => {
-      stopCamera();
+      void stopCamera();
     };
   }, []);
 
-  const stopCamera = () => {
+  const stopCamera = async () => {
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
@@ -52,6 +64,20 @@ export default function ScanPage() {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+    }
+
+    if (htmlScannerRef.current) {
+      try {
+        await htmlScannerRef.current.stop();
+      } catch {
+        // Scanner may already be stopped.
+      }
+      try {
+        await htmlScannerRef.current.clear();
+      } catch {
+        // Container may already be cleared.
+      }
+      htmlScannerRef.current = null;
     }
 
     setCameraState("idle");
@@ -104,13 +130,14 @@ export default function ScanPage() {
           const scannedValue = hit.rawValue.trim();
           setCaseId(scannedValue);
           setMessage(`Scanned ${scannedValue}. Sending update...`);
-          stopCamera();
+          await stopCamera();
           void submitScan(scannedValue);
           return;
         }
       } catch {
-        setMessage("Camera scan failed. Try manual entry.");
-        stopCamera();
+        setMessage("Native camera scan failed. Switching to fallback scanner...");
+        await stopCamera();
+        void startFallbackCamera();
         return;
       }
 
@@ -124,20 +151,56 @@ export default function ScanPage() {
     });
   };
 
+  const startFallbackCamera = async () => {
+    try {
+      await stopCamera();
+
+      const mod = (await import("html5-qrcode")) as unknown as {
+        Html5Qrcode: new (elementId: string) => Html5ScannerLike;
+      };
+
+      const scanner = new mod.Html5Qrcode("fallback-reader");
+      htmlScannerRef.current = scanner;
+
+      setCameraState("active-fallback");
+      setMessage("Fallback scanner active. Point at a case QR code.");
+
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        (decodedText) => {
+          const scannedValue = decodedText.trim();
+          if (!scannedValue) {
+            return;
+          }
+          setCaseId(scannedValue);
+          setMessage(`Scanned ${scannedValue}. Sending update...`);
+          void stopCamera();
+          void submitScan(scannedValue);
+        }
+      );
+    } catch {
+      setCameraState("unsupported");
+      setMessage("Unable to start camera scanner on this browser. Use manual entry.");
+      await stopCamera();
+    }
+  };
+
   const startCamera = async () => {
-    if (cameraState === "active") {
+    if (cameraState === "active-native" || cameraState === "active-fallback") {
       return;
     }
 
     const BarcodeDetectorCtor = (globalThis as { BarcodeDetector?: new (options: { formats: string[] }) => DetectorLike }).BarcodeDetector;
 
     if (!navigator.mediaDevices?.getUserMedia || !BarcodeDetectorCtor) {
-      setCameraState("unsupported");
-      setMessage("Camera scanning is not supported on this browser. Use manual entry.");
+      void startFallbackCamera();
       return;
     }
 
     try {
+      await stopCamera();
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: "environment" }
@@ -157,14 +220,15 @@ export default function ScanPage() {
       video.setAttribute("playsinline", "true");
       await video.play();
 
-      setCameraState("active");
+      setCameraState("active-native");
       setMessage("Camera active. Point at a case QR code.");
 
       const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
       runDetectionLoop(detector, video);
     } catch {
-      setMessage("Unable to access camera. Check browser permissions.");
-      stopCamera();
+      setMessage("Native camera unavailable. Trying fallback scanner...");
+      await stopCamera();
+      void startFallbackCamera();
     }
   };
 
@@ -177,15 +241,15 @@ export default function ScanPage() {
     <main className="grid" style={{ gap: 16 }}>
       <section className="panel" style={{ padding: 16 }}>
         <h1 style={{ marginTop: 0 }}>Scan Mode</h1>
-        <p style={{ color: "#5d6d63" }}>Use camera scan for QR updates. Manual entry remains as fallback.</p>
+        <p style={{ color: "#5d6d63" }}>Uses native QR scanner first, then auto-falls back for broader iOS support.</p>
       </section>
 
       <section className="panel" style={{ padding: 16 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-          <button className="btn" type="button" onClick={startCamera} disabled={cameraState === "active"}>
+          <button className="btn" type="button" onClick={() => void startCamera()} disabled={cameraState === "active-native" || cameraState === "active-fallback"}>
             Start Camera Scan
           </button>
-          <button className="btn" type="button" onClick={stopCamera} style={{ background: "#64748b" }}>
+          <button className="btn" type="button" onClick={() => void stopCamera()} style={{ background: "#64748b" }}>
             Stop Camera
           </button>
         </div>
@@ -197,12 +261,22 @@ export default function ScanPage() {
             maxHeight: 320,
             borderRadius: 12,
             background: "#0f172a",
-            display: cameraState === "active" ? "block" : "none"
+            display: cameraState === "active-native" ? "block" : "none"
           }}
           muted
         />
 
-        {cameraState === "unsupported" && <p style={{ color: "#b91c1c", marginBottom: 0 }}>BarcodeDetector is unavailable on this browser.</p>}
+        <div
+          id="fallback-reader"
+          style={{
+            width: "100%",
+            maxWidth: 520,
+            margin: cameraState === "active-fallback" ? "0 auto" : "0",
+            display: cameraState === "active-fallback" ? "block" : "none"
+          }}
+        />
+
+        {cameraState === "unsupported" && <p style={{ color: "#b91c1c", marginBottom: 0 }}>Camera scanner unavailable. Use manual entry.</p>}
       </section>
 
       <form className="panel" style={{ padding: 16 }} onSubmit={onSubmit}>
