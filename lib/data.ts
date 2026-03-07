@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { resolveAppSchema } from "@/lib/app-schema";
 import { formatDbStatus } from "@/lib/status";
 
 export async function getDashboardCounts() {
@@ -19,20 +20,32 @@ export async function getDashboardCounts() {
 }
 
 export async function getCases() {
-  const cases = await prisma.case.findMany({ orderBy: { id: "asc" } });
-  return cases.map((item) => ({
-    id: item.id,
-    department: item.department,
-    caseType: item.caseType,
-    lengthIn: item.lengthIn,
-    widthIn: item.widthIn,
-    heightIn: item.heightIn,
-    defaultContents: item.defaultContents,
-    status: formatDbStatus(item.currentStatus),
-    location: item.currentLocation,
-    owner: item.ownerLabel,
-    notes: item.notes
-  }));
+  try {
+    const cases = await prisma.case.findMany({ orderBy: { id: "asc" } });
+    if (process.env.DEBUG_DATA === "true") {
+      console.info(`[DATA DEBUG] table=case schema=${resolveAppSchema()} rows=${cases.length}`);
+    }
+
+    return cases.map((item) => ({
+      id: item.id,
+      department: item.department,
+      caseType: item.caseType,
+      lengthIn: item.lengthIn,
+      widthIn: item.widthIn,
+      heightIn: item.heightIn,
+      defaultContents: item.defaultContents,
+      status: formatDbStatus(item.currentStatus),
+      location: item.currentLocation,
+      owner: item.ownerLabel,
+      notes: item.notes
+    }));
+  } catch (error) {
+    if (process.env.DEBUG_DATA === "true") {
+      const err = error as { code?: string; message?: string };
+      console.error(`[DATA DEBUG] table=case error_code=${err.code ?? "unknown"} error_message=${err.message ?? "unknown"}`);
+    }
+    throw error;
+  }
 }
 
 export async function getCaseDetail(caseId: string) {
