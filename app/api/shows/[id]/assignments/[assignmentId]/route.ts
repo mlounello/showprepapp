@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { syncAppUsersToControlRoom } from "@/lib/user-sync";
 
 interface UpdateAssignmentPayload {
   ownerId?: string | null;
@@ -53,6 +54,13 @@ export async function PATCH(
       case: true
     }
   });
+
+  if (assignment.ownerId !== updated.ownerId || assignment.ownerRole !== updated.ownerRole) {
+    void syncAppUsersToControlRoom("assignment_patch").catch((error) => {
+      const detail = error instanceof Error ? error.message : "Unknown sync error";
+      console.error(`[USER SYNC] trigger=assignment_patch failed=${detail}`);
+    });
+  }
 
   return NextResponse.json({
     id: updated.id,

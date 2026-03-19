@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { AdminUserSyncButton } from "@/components/admin-user-sync-button";
 import { formatDbStatus } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +60,8 @@ export default async function AdminPage() {
             </>
           )}
         </section>
+
+        <AdminUserSyncButton />
       </main>
     );
   } catch (error) {
